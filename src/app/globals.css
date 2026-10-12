@@ -1,0 +1,71 @@
+@import "tailwindcss";
+
+:root {
+  --bg: #f6f4ef;
+  --surface: #ffffff;
+  --fg: #1d2433;
+  --muted: #667085;
+  --border: #e4e0d6;
+  --accent: #1f4e79;      /* navy */
+  --accent-fg: #ffffff;
+  --coral: #e2725b;
+  --danger: #b42318;
+  --ok: #2e7d4f;
+}
+
+@media (prefers-color-scheme: dark) {
+  :root {
+    --bg: #11151c;
+    --surface: #1a202b;
+    --fg: #e8eaee;
+    --muted: #98a2b3;
+    --border: #2b3340;
+    --accent: #7fb2e5;
+    --accent-fg: #0d1520;
+    --coral: #f08a73;
+    --danger: #f97066;
+    --ok: #6cc28f;
+  }
+}
+
+@theme inline {
+  --color-bg: var(--bg);
+  --color-surface: var(--surface);
+  --color-fg: var(--fg);
+  --color-muted: var(--muted);
+  --color-border: var(--border);
+  --color-accent: var(--accent);
+  --color-accent-fg: var(--accent-fg);
+  --color-coral: var(--coral);
+  --color-danger: var(--danger);
+  --color-ok: var(--ok);
+  --font-sans: var(--font-sans-face), ui-sans-serif, system-ui, -apple-system, sans-serif;
+}
+
+html {
+  -webkit-text-size-adjust: 100%;
+}
+
+body {
+  background: var(--bg);
+  color: var(--fg);
+  -webkit-tap-highlight-color: transparent;
+}
+
+@layer components {
+  .input {
+    @apply block w-full rounded-xl border border-border bg-surface px-4 py-3 text-base text-fg outline-none;
+    @apply focus:border-accent focus:ring-2 focus:ring-accent/25;
+  }
+  .btn-primary {
+    @apply inline-flex min-h-12 items-center justify-center rounded-xl bg-accent px-5 font-semibold text-accent-fg;
+    @apply transition-opacity active:opacity-80 disabled:opacity-50;
+  }
+  .btn-ghost {
+    @apply inline-flex min-h-12 items-center justify-center rounded-xl px-5 font-medium text-accent;
+    @apply active:bg-accent/10;
+  }
+  .card {
+    @apply rounded-2xl border border-border bg-surface;
+  }
+}
