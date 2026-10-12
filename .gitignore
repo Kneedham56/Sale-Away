@@ -48,3 +48,4 @@ next-env.d.ts
 *.csv
 *.docx
 /Sale Away With Me Build Plan.md
+/.claude/launch.json
