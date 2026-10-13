@@ -11,7 +11,7 @@ export default function LoginPage() {
         {/* eslint-disable-next-line @next/next/no-img-element -- static SVG icon */}
         <img src="/icons/icon.svg" alt="" className="mx-auto mb-4 h-16 w-16 rounded-2xl" />
         <h1 className="text-2xl font-semibold tracking-tight">Sale Away With Me</h1>
-        <p className="mt-1 text-sm text-muted">Sign in with your email. We&apos;ll send you a code.</p>
+        <p className="mt-1 text-sm text-muted">Sign in to keep selling.</p>
       </div>
       <Suspense>
         <LoginForm />

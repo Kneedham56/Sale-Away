@@ -11,7 +11,8 @@
     "typecheck": "tsc --noEmit",
     "db:migrate": "tsx scripts/migrate.ts",
     "add-member": "tsx scripts/add-member.ts",
-    "icons": "node scripts/make-icons.mjs ."
+    "icons": "node scripts/make-icons.mjs .",
+    "set-password": "tsx scripts/set-password.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

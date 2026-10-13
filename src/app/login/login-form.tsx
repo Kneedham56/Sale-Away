@@ -4,107 +4,62 @@ import { useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
-// Email code (not just a link): on iPhone a home-screen app keeps its own storage,
-// so a magic link opened from Mail would sign in Safari instead of the app.
+// Email + password, each person their own (iPhone Keychain remembers it).
+// Supabase's built-in mailer only reaches project team members, so emailed codes/links aren't reliable
+// until a custom SMTP sender is set up.
 export function LoginForm() {
   const router = useRouter();
   const params = useSearchParams();
   const [email, setEmail] = useState("");
-  const [code, setCode] = useState("");
-  const [step, setStep] = useState<"email" | "code">("email");
+  const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(
     params.get("error") === "not-a-member" ? "That account isn't set up for this app." : null
   );
 
-  async function sendCode(e: React.FormEvent) {
+  async function signIn(e: React.FormEvent) {
     e.preventDefault();
     setBusy(true);
     setError(null);
-    const supabase = createClient();
-    const { error } = await supabase.auth.signInWithOtp({
-      email: email.trim(),
-      options: {
-        shouldCreateUser: false,
-        emailRedirectTo: `${window.location.origin}/auth/confirm`,
-      },
-    });
-    setBusy(false);
-    if (error) {
-      setError(
-        /signups? not allowed|not found/i.test(error.message)
-          ? "That email isn't set up for this app."
-          : error.message
-      );
-      return;
-    }
-    setStep("code");
-  }
-
-  async function verify(e: React.FormEvent) {
-    e.preventDefault();
-    setBusy(true);
-    setError(null);
-    const supabase = createClient();
-    const { error } = await supabase.auth.verifyOtp({ email: email.trim(), token: code.trim(), type: "email" });
+    const { error } = await createClient().auth.signInWithPassword({ email: email.trim(), password });
     if (error) {
       setBusy(false);
-      setError("That code didn't work. Check it or send a new one.");
+      setError(/invalid/i.test(error.message) ? "Email or password didn't match." : error.message);
       return;
     }
     router.replace("/");
     router.refresh();
   }
 
-  if (step === "code") {
-    return (
-      <form onSubmit={verify} className="space-y-4">
-        <p className="text-sm text-muted">
-          We sent a code to <strong className="text-fg">{email}</strong>.
-        </p>
-        <label className="block">
-          <span className="mb-1 block text-sm font-medium">Code</span>
-          <input
-            className="input text-center text-2xl tracking-[0.4em]"
-            inputMode="numeric"
-            autoComplete="one-time-code"
-            pattern="[0-9]*"
-            maxLength={10}
-            value={code}
-            onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-            autoFocus
-            required
-          />
-        </label>
-        {error && <p className="text-sm text-danger">{error}</p>}
-        <button className="btn-primary w-full" disabled={busy || code.length < 6}>
-          {busy ? "Checking…" : "Sign in"}
-        </button>
-        <button type="button" className="btn-ghost w-full" onClick={() => { setStep("email"); setCode(""); }}>
-          Use a different email
-        </button>
-      </form>
-    );
-  }
-
   return (
-    <form onSubmit={sendCode} className="space-y-4">
+    <form onSubmit={signIn} className="space-y-4">
       <label className="block">
         <span className="mb-1 block text-sm font-medium">Email</span>
         <input
           className="input"
           type="email"
           inputMode="email"
-          autoComplete="email"
+          autoComplete="username"
           value={email}
           onChange={(e) => setEmail(e.target.value)}
           autoFocus
           required
         />
       </label>
+      <label className="block">
+        <span className="mb-1 block text-sm font-medium">Password</span>
+        <input
+          className="input"
+          type="password"
+          autoComplete="current-password"
+          value={password}
+          onChange={(e) => setPassword(e.target.value)}
+          required
+        />
+      </label>
       {error && <p className="text-sm text-danger">{error}</p>}
       <button className="btn-primary w-full" disabled={busy}>
-        {busy ? "Sending…" : "Send me a code"}
+        {busy ? "Signing in…" : "Sign in"}
       </button>
     </form>
   );

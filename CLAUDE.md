@@ -8,7 +8,7 @@ The full plan is `docs/PLAN.md`. Build one phase at a time and stop at each gate
 ## Stack
 
 - Next.js 16 (App Router, TypeScript, Turbopack, Cache Components on) on Vercel
-- Supabase: Postgres + Auth (email code) + Storage (`item-photos` bucket, private)
+- Supabase: Postgres + Auth (email + password per member) + Storage (`item-photos` bucket, private)
 - Tailwind v4; theme tokens in `src/app/globals.css` (`bg`, `surface`, `fg`, `muted`, `border`, `accent`, `coral`, `danger`, `ok`)
 - PWA: `src/app/manifest.ts`, `public/sw.js` (no page/data caching), icons in `public/icons` (`npm run icons`)
 
@@ -17,6 +17,7 @@ The full plan is `docs/PLAN.md`. Build one phase at a time and stop at each gate
 - `npm run dev` / `npm run build` / `npm run lint` / `npm run typecheck`
 - `npm run db:migrate`: applies `supabase/migrations/*.sql` once each (needs `SUPABASE_DB_URL`)
 - `npm run add-member -- email "Name" [seller|admin]`: creates a login and adds it to `members`
+- `npm run set-password -- email`: prompts (hidden) and sets that member's password
 - `npm run import -- "data/<file>.xlsx" [--apply]`: spreadsheet import; dry run writes `data/import-report.md`
 
 ## Conventions
