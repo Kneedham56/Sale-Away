@@ -24,6 +24,7 @@ type CallOpts = {
 };
 
 class Overloaded extends Error {}
+class QuotaUsed extends Error {}
 
 /** Retries "high demand" (503) twice with backoff, then tries the fallback model if one is given. */
 export async function callGemini(opts: CallOpts): Promise<GeminiResult & { fellBack: boolean }> {
@@ -31,6 +32,7 @@ export async function callGemini(opts: CallOpts): Promise<GeminiResult & { fellB
     try {
       return { ...(await callOnce(opts)), fellBack: false };
     } catch (e) {
+      if (e instanceof QuotaUsed) break; // retrying won't help until the quota resets
       if (!(e instanceof Overloaded)) throw e;
       if (attempt < 2) await new Promise((r) => setTimeout(r, attempt === 0 ? 3000 : 8000));
     }
@@ -39,10 +41,10 @@ export async function callGemini(opts: CallOpts): Promise<GeminiResult & { fellB
     try {
       return { ...(await callOnce({ ...opts, model: opts.fallbackModel })), fellBack: true };
     } catch (e) {
-      if (!(e instanceof Overloaded)) throw e;
+      if (!(e instanceof Overloaded) && !(e instanceof QuotaUsed)) throw e;
     }
   }
-  throw new Error("Gemini is busy right now (high demand). Try again in a minute, or use Copy Prompt.");
+  throw new Error("Gemini is busy or today's free quota is used up. Try again later, or use Copy Prompt.");
 }
 
 async function callOnce(opts: CallOpts): Promise<GeminiResult> {
@@ -72,7 +74,7 @@ async function callOnce(opts: CallOpts): Promise<GeminiResult> {
     if (!res.ok) {
       const msg = body?.error?.message ?? `HTTP ${res.status}`;
       if (res.status === 503 || /high demand|overloaded/i.test(msg)) throw new Overloaded(msg);
-      if (res.status === 429) throw new Error(`Gemini rate limit reached (free tier). Wait a minute or use Copy Prompt. ${msg}`);
+      if (res.status === 429) throw new QuotaUsed(msg);
       throw new Error(`Gemini error: ${msg}`);
     }
     const text: string = (body?.candidates?.[0]?.content?.parts ?? []).map((p: { text?: string }) => p.text ?? "").join("");

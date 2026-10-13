@@ -36,7 +36,7 @@ export function BatchGenerate({ items, geminiAvailable }: { items: Row[]; gemini
           ? { state: "done", note: `${res.data!.suggestion.decision} · $${res.data!.suggestion.price ?? "?"}` }
           : { state: "error", note: res.error },
       }));
-      if (!res.ok && /rate limit/i.test(res.error)) await new Promise((r) => setTimeout(r, 30_000));
+      if (!res.ok && /busy|quota/i.test(res.error)) await new Promise((r) => setTimeout(r, 30_000));
     }
     setRunning(false);
   }
