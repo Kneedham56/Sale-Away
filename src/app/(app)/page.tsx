@@ -1,5 +1,6 @@
 import { requireMember } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
+import { todayIso } from "@/lib/dates";
 
 type Count = { label: string; value: number | null; hint?: string };
 
@@ -7,9 +8,7 @@ export default async function HomePage() {
   const member = await requireMember();
   const supabase = await createClient();
 
-  const monthStart = new Date();
-  monthStart.setDate(1);
-  const monthStartIso = monthStart.toISOString().slice(0, 10);
+  const monthStartIso = `${(await todayIso()).slice(0, 7)}-01`;
 
   const count = (q: PromiseLike<{ count: number | null }>) => q.then((r) => r.count);
   const items = () => supabase.from("items").select("id", { count: "exact", head: true });

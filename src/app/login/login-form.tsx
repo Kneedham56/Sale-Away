@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useSyncExternalStore } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
@@ -13,6 +13,8 @@ export function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [busy, setBusy] = useState(false);
+  // False during server render and until hydration, so a tap can't submit the bare HTML form and wipe it.
+  const hydrated = useSyncExternalStore(noopSubscribe, () => true, () => false);
   const [error, setError] = useState<string | null>(
     params.get("error") === "not-a-member" ? "That account isn't set up for this app." : null
   );
@@ -58,9 +60,11 @@ export function LoginForm() {
         />
       </label>
       {error && <p className="text-sm text-danger">{error}</p>}
-      <button className="btn-primary w-full" disabled={busy}>
+      <button className="btn-primary w-full" disabled={busy || !hydrated}>
         {busy ? "Signing in…" : "Sign in"}
       </button>
     </form>
   );
 }
+
+const noopSubscribe = () => () => {};

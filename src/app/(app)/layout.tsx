@@ -1,4 +1,3 @@
-import { Suspense } from "react";
 import { SignOutButton } from "./sign-out-button";
 
 export default function AppLayout({ children }: LayoutProps<"/">) {
@@ -13,7 +12,7 @@ export default function AppLayout({ children }: LayoutProps<"/">) {
         <SignOutButton />
       </header>
       <main className="flex-1 px-5 pb-[calc(env(safe-area-inset-bottom)+1.5rem)]">
-        <Suspense fallback={<p className="py-10 text-center text-muted">Loading…</p>}>{children}</Suspense>
+        {children}
       </main>
     </div>
   );

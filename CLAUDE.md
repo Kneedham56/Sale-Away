@@ -24,10 +24,11 @@ The full plan is `docs/PLAN.md`. Build one phase at a time and stop at each gate
 
 - **Never commit anything under `/data`**, the spreadsheet, exports, or credentials. `.env.local` holds secrets.
 - Next 16 renamed middleware to `src/proxy.ts`. With Cache Components, anything reading cookies (auth, Supabase queries)
-  must render inside `<Suspense>`; the `(app)` layout wraps pages in one.
+  must render inside `<Suspense>`; `(app)/loading.tsx` gives every page its own boundary.
 - Pages call `requireMember()` (`src/lib/auth.ts`) first. RLS allows only rows in `members`.
 - `createClient()` from `@/lib/supabase/server` acts as the user; `createAdminClient()` bypasses RLS and is for
   server jobs only (eBay tokens, cron, account deletion).
+- Dates are her local (Las Vegas) dates: use `todayIso()` from `src/lib/dates.ts`, never `new Date()` in renders.
 - Unknown values are `null`, never 0 (cost, category, etc.). Money is `numeric(10,2)`.
 - Net profit, days active and monthly totals are computed in views (`sales_view`, `items_view`, `monthly_summary`).
 - Schema changes: add a new timestamped file in `supabase/migrations/`; never edit an applied one.
