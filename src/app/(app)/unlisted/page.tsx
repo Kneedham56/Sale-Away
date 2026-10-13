@@ -13,7 +13,12 @@ export default async function UnlistedPage({ searchParams }: PageProps<"/unliste
       <PageHeader
         title="Unlisted"
         subtitle="Everything waiting to be listed."
-        actions={<Link href="/add" className="btn-small">+ Add</Link>}
+        actions={
+          <>
+            <Link href="/batch" className="btn-small">Batch AI</Link>
+            <Link href="/add" className="btn-small">+ Add</Link>
+          </>
+        }
       />
       <ItemList mode="unlisted" params={await searchParams} />
     </>
