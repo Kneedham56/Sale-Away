@@ -7,12 +7,29 @@ import { readdirSync, readFileSync } from "node:fs";
 import { join } from "node:path";
 import postgres from "postgres";
 
-config({ path: ".env.local" });
+config({ path: ".env.local", quiet: true });
+
+/**
+ * Splits the connection string by hand so a password with unescaped URL characters (like "%") still works,
+ * and moves the transaction pooler (6543) to the session pooler (5432), which suits multi-statement migrations.
+ */
+function connectionOptions(url: string) {
+  const m = url.match(/^postgres(?:ql)?:\/\/([^:]+):(.*)@([^@:/]+):(\d+)\/([^?]+)/);
+  if (!m) throw new Error("SUPABASE_DB_URL should look like postgresql://user:password@host:5432/postgres");
+  const [, user, rawPassword, host, port, database] = m;
+  let password = rawPassword;
+  try {
+    if (/%[0-9A-Fa-f]{2}/.test(rawPassword)) password = decodeURIComponent(rawPassword);
+  } catch {
+    // Not URL-encoded after all; use it as typed
+  }
+  return { host, port: port === "6543" ? 5432 : Number(port), user, password, database };
+}
 
 async function main() {
   const url = process.env.SUPABASE_DB_URL;
   if (!url) throw new Error("SUPABASE_DB_URL must be set in .env.local");
-  const sql = postgres(url, { ssl: "require", max: 1, onnotice: () => {} });
+  const sql = postgres({ ...connectionOptions(url), ssl: "require", max: 1, onnotice: () => {} });
   try {
     await sql`create table if not exists public._migrations (name text primary key, applied_at timestamptz not null default now())`;
     await sql`alter table public._migrations enable row level security`;
