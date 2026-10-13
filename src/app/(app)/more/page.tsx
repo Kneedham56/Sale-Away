@@ -25,7 +25,16 @@ export default async function MorePage() {
   const me = await requireMember();
   return (
     <div className="mx-auto max-w-xl">
-      <PageHeader title="More" subtitle={`Signed in as ${me.displayName}`} />
+      <PageHeader title="More" subtitle={`Signed in as ${me.displayName} · ${me.workspace.name}`} />
+      {(me.workspaces.length > 1 || me.role === "admin") && (
+        <Link href="/businesses" className="card mb-4 flex items-center justify-between px-4 py-3.5">
+          <span>
+            <span className="block font-medium">Business: {me.workspace.name}</span>
+            <span className="block text-xs text-muted">{me.role === "admin" ? "Switch or add a business" : "Switch business"}</span>
+          </span>
+          <span className="text-muted">›</span>
+        </Link>
+      )}
       <ul className="list">
         {LINKS.map(([href, label, hint]) => (
           <li key={href}>

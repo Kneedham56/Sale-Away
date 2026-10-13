@@ -16,7 +16,11 @@ export function LoginForm() {
   // False during server render and until hydration, so a tap can't submit the bare HTML form and wipe it.
   const hydrated = useSyncExternalStore(noopSubscribe, () => true, () => false);
   const [error, setError] = useState<string | null>(
-    params.get("error") === "not-a-member" ? "That account isn't set up for this app." : null
+    params.get("error") === "not-a-member"
+      ? "That account isn't set up for this app."
+      : params.get("error") === "no-business"
+        ? "This login isn't linked to a business yet. Ask Doc."
+        : null
   );
 
   async function signIn(e: React.FormEvent) {

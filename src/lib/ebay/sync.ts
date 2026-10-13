@@ -39,35 +39,41 @@ export function lineGross(line: EbayLineItem): number {
 }
 
 /** Item for an order line: SKU first, then eBay item number, then exact title (her VLOOKUP rule). */
-async function matchItem(db: SupabaseClient, line: EbayLineItem): Promise<{ id: string; cost: number | null; title: string } | null> {
+async function matchItem(db: SupabaseClient, ws: string, line: EbayLineItem): Promise<{ id: string; cost: number | null; title: string } | null> {
   const pick = "id, cost, title, status";
   if (line.sku) {
-    const { data } = await db.from("items").select(pick).eq("sku", line.sku).limit(1);
+    const { data } = await db.from("items").select(pick).eq("workspace_id", ws).eq("sku", line.sku).limit(1);
     if (data?.[0]) return { id: data[0].id, cost: data[0].cost, title: data[0].title };
   }
   if (line.legacyItemId) {
-    const { data } = await db.from("items").select(pick).eq("ebay_item_id", line.legacyItemId).limit(1);
+    const { data } = await db.from("items").select(pick).eq("workspace_id", ws).eq("ebay_item_id", line.legacyItemId).limit(1);
     if (data?.[0]) return { id: data[0].id, cost: data[0].cost, title: data[0].title };
-    const { data: pub } = await db.from("ebay_listings").select("item_id").eq("listing_id", line.legacyItemId).limit(1);
+    const { data: pub } = await db
+      .from("ebay_listings")
+      .select("item_id")
+      .eq("workspace_id", ws)
+      .eq("listing_id", line.legacyItemId)
+      .limit(1);
     if (pub?.[0]) {
       const { data: it } = await db.from("items").select(pick).eq("id", pub[0].item_id).single();
       if (it) return { id: it.id, cost: it.cost, title: it.title };
     }
   }
-  const { data } = await db.from("items").select(pick).eq("title", line.title.trim()).order("status").limit(5);
+  const { data } = await db.from("items").select(pick).eq("workspace_id", ws).eq("title", line.title.trim()).order("status").limit(5);
   const best = data?.find((i) => i.status === "listed") ?? data?.find((i) => i.status === "ready_to_list") ?? data?.[0];
   return best ? { id: best.id, cost: best.cost, title: best.title } : null;
 }
 
-async function feeRate(db: SupabaseClient): Promise<number> {
-  const { data } = await db.from("platforms").select("fee_rate").eq("code", "ebay").single();
+async function feeRate(db: SupabaseClient, ws: string): Promise<number> {
+  const { data } = await db.from("platforms").select("fee_rate").eq("workspace_id", ws).eq("code", "ebay").single();
   return Number(data?.fee_rate ?? 0.15);
 }
 
-export async function syncOrders(env: EbayEnv, opts: { dryRun?: boolean; since?: string } = {}): Promise<SyncResult> {
+/** Orders for one business's eBay account. Mock mode is always a preview. */
+export async function syncOrders(env: EbayEnv, ws: string, opts: { dryRun?: boolean; since?: string } = {}): Promise<SyncResult> {
   const dryRun = env === "mock" || !!opts.dryRun;
   const db = createAdminClient();
-  const client = getEbayClient(env);
+  const client = getEbayClient(env, ws);
   const result: SyncResult = {
     environment: env, dryRun, orders: 0, lines: 0, inserted: 0, updated: 0, matched: 0, unmatched: [], cancelled: 0,
     transactions: 0, feesUpdated: 0, scrubbed: 0, preview: dryRun ? [] : undefined,
@@ -75,19 +81,19 @@ export async function syncOrders(env: EbayEnv, opts: { dryRun?: boolean; since?:
 
   let since = opts.since;
   if (!since) {
-    const { data: state } = env === "mock" ? { data: null } : await db.from("ebay_sync_state").select("orders_synced_at").eq("environment", env).maybeSingle();
+    const { data: state } = env === "mock" ? { data: null } : await db.from("ebay_sync_state").select("orders_synced_at").eq("workspace_id", ws).eq("environment", env).maybeSingle();
     const last = state?.orders_synced_at ? new Date(state.orders_synced_at) : new Date(Date.now() - 30 * 86400_000);
     since = new Date(last.getTime() - 3600_000).toISOString(); // 1h overlap
   }
   const startedAt = new Date().toISOString();
   const orders = await client.getOrders(since);
-  const rate = await feeRate(db);
+  const rate = await feeRate(db, ws);
   result.orders = orders.length;
 
   for (const order of orders) {
     for (const line of order.lineItems) {
       result.lines++;
-      const item = await matchItem(db, line);
+      const item = await matchItem(db, ws, line);
       const status = fulfillmentFor(order, line);
       const gross = lineGross(line);
       if (status === "cancelled") result.cancelled++;
@@ -101,6 +107,7 @@ export async function syncOrders(env: EbayEnv, opts: { dryRun?: boolean; since?:
       const environment = env as RealEnv;
       const ship = order.fulfillmentStartInstructions?.[0]?.shippingStep;
       const ebayFields = {
+        workspace_id: ws,
         environment,
         platform: "ebay",
         order_id: order.orderId,
@@ -120,6 +127,7 @@ export async function syncOrders(env: EbayEnv, opts: { dryRun?: boolean; since?:
       const { data: existing } = await db
         .from("sales")
         .select("id, fulfillment_status, item_id")
+        .eq("workspace_id", ws)
         .eq("platform", "ebay")
         .eq("order_id", order.orderId)
         .eq("line_item_id", line.lineItemId)
@@ -140,6 +148,7 @@ export async function syncOrders(env: EbayEnv, opts: { dryRun?: boolean; since?:
               await db
                 .from("sales")
                 .select("id")
+                .eq("workspace_id", ws)
                 .eq("item_id", item.id)
                 .eq("platform", "ebay")
                 .is("order_id", null)
@@ -179,7 +188,9 @@ export async function syncOrders(env: EbayEnv, opts: { dryRun?: boolean; since?:
   }
 
   if (!dryRun) {
-    await db.from("ebay_sync_state").upsert({ environment: env, orders_synced_at: startedAt }, { onConflict: "environment" });
+    await db
+      .from("ebay_sync_state")
+      .upsert({ workspace_id: ws, environment: env, orders_synced_at: startedAt }, { onConflict: "workspace_id,environment" });
   }
   return result;
 }
@@ -189,12 +200,12 @@ function orderIdOf(t: EbayTransaction): string | null {
 }
 
 /** Pulls finance transactions and replaces estimated fees with eBay's actual fees, label costs and refunds. */
-export async function syncFinances(env: RealEnv, opts: { since?: string } = {}): Promise<{ transactions: number; feesUpdated: number }> {
+export async function syncFinances(env: RealEnv, ws: string, opts: { since?: string } = {}): Promise<{ transactions: number; feesUpdated: number }> {
   const db = createAdminClient();
-  const client = getEbayClient(env);
+  const client = getEbayClient(env, ws);
   let since = opts.since;
   if (!since) {
-    const { data: state } = await db.from("ebay_sync_state").select("finances_synced_at").eq("environment", env).maybeSingle();
+    const { data: state } = await db.from("ebay_sync_state").select("finances_synced_at").eq("workspace_id", ws).eq("environment", env).maybeSingle();
     const last = state?.finances_synced_at ? new Date(state.finances_synced_at) : new Date(Date.now() - 90 * 86400_000);
     since = new Date(last.getTime() - 2 * 86400_000).toISOString(); // finance records settle late
   }
@@ -205,6 +216,7 @@ export async function syncFinances(env: RealEnv, opts: { since?: string } = {}):
     const orderId = orderIdOf(t);
     const lines = t.orderLineItems?.length ? t.orderLineItems : [null];
     return lines.map((l, i) => ({
+      workspace_id: ws,
       transaction_id: lines.length > 1 ? `${t.transactionId}#${l?.lineItemId ?? i}` : t.transactionId,
       environment: env,
       order_id: orderId,
@@ -222,7 +234,7 @@ export async function syncFinances(env: RealEnv, opts: { since?: string } = {}):
     }));
   });
   for (let i = 0; i < rows.length; i += 500) {
-    const { error } = await db.from("ebay_transactions").upsert(rows.slice(i, i + 500), { onConflict: "environment,transaction_id" });
+    const { error } = await db.from("ebay_transactions").upsert(rows.slice(i, i + 500), { onConflict: "workspace_id,environment,transaction_id" });
     if (error) throw new Error(error.message);
   }
 
@@ -231,6 +243,7 @@ export async function syncFinances(env: RealEnv, opts: { since?: string } = {}):
   const { data: estimated } = await db
     .from("sales")
     .select("order_id")
+    .eq("workspace_id", ws)
     .eq("environment", env)
     .eq("platform", "ebay")
     .eq("fee_is_estimate", true)
@@ -240,8 +253,8 @@ export async function syncFinances(env: RealEnv, opts: { since?: string } = {}):
   let feesUpdated = 0;
   for (const orderId of touched) {
     const [{ data: tx }, { data: sales }] = await Promise.all([
-      db.from("ebay_transactions").select("*").eq("environment", env).eq("order_id", orderId),
-      db.from("sales").select("id, line_item_id").eq("environment", env).eq("platform", "ebay").eq("order_id", orderId).order("line_item_id"),
+      db.from("ebay_transactions").select("*").eq("workspace_id", ws).eq("environment", env).eq("order_id", orderId),
+      db.from("sales").select("id, line_item_id").eq("workspace_id", ws).eq("environment", env).eq("platform", "ebay").eq("order_id", orderId).order("line_item_id"),
     ]);
     if (!tx?.length || !sales?.length) continue;
     const saleTx = tx.filter((t) => t.transaction_type === "SALE");
@@ -264,7 +277,9 @@ export async function syncFinances(env: RealEnv, opts: { since?: string } = {}):
       }
     }
   }
-  await db.from("ebay_sync_state").upsert({ environment: env, finances_synced_at: startedAt }, { onConflict: "environment" });
+  await db
+    .from("ebay_sync_state")
+    .upsert({ workspace_id: ws, environment: env, finances_synced_at: startedAt }, { onConflict: "workspace_id,environment" });
   return { transactions: txns.length, feesUpdated };
 }
 
@@ -282,26 +297,33 @@ export async function scrubShippedBuyerDetails(): Promise<number> {
 }
 
 /** Everything the scheduled job does, recorded in ebay_sync_state. */
-export async function runEbaySync(env: EbayEnv): Promise<SyncResult> {
+export async function runEbaySync(env: EbayEnv, ws: string): Promise<SyncResult> {
   const db = createAdminClient();
   try {
-    const result = await syncOrders(env);
+    const result = await syncOrders(env, ws);
     if (env !== "mock") {
-      const fin = await syncFinances(env);
+      const fin = await syncFinances(env, ws);
       result.transactions = fin.transactions;
       result.feesUpdated = fin.feesUpdated;
       result.scrubbed = await scrubShippedBuyerDetails();
-      const { preview: _omit, ...summary } = result;
-      void _omit;
+      const summary = { ...result, preview: undefined };
       await db
         .from("ebay_sync_state")
-        .upsert({ environment: env, last_run_at: new Date().toISOString(), last_error: null, last_result: summary }, { onConflict: "environment" });
+        .upsert(
+          { workspace_id: ws, environment: env, last_run_at: new Date().toISOString(), last_error: null, last_result: summary },
+          { onConflict: "workspace_id,environment" }
+        );
     }
     return result;
   } catch (e) {
     const message = e instanceof Error ? e.message : String(e);
     if (env !== "mock") {
-      await db.from("ebay_sync_state").upsert({ environment: env, last_run_at: new Date().toISOString(), last_error: message }, { onConflict: "environment" });
+      await db
+        .from("ebay_sync_state")
+        .upsert(
+          { workspace_id: ws, environment: env, last_run_at: new Date().toISOString(), last_error: message },
+          { onConflict: "workspace_id,environment" }
+        );
     }
     throw e;
   }

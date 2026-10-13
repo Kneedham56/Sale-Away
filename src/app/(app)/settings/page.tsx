@@ -12,10 +12,12 @@ export const metadata: Metadata = { title: "Settings" };
 export default async function SettingsPage() {
   const me = await requireMember();
   const supabase = await createClient();
-  const [lookups, { data: members }] = await Promise.all([
+  const [lookups, { data: members }, { data: people }] = await Promise.all([
     getLookups(supabase),
-    supabase.from("members").select("email, display_name, role").order("created_at"),
+    supabase.from("workspace_members").select("user_id, role").eq("workspace_id", me.workspace.id),
+    supabase.from("members").select("user_id, display_name, email"),
   ]);
+  const person = new Map((people ?? []).map((p) => [p.user_id, p]));
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -69,12 +71,16 @@ export default async function SettingsPage() {
       </section>
 
       <section className="card p-4">
-        <h2 className="mb-2 font-semibold">People</h2>
+        <h2 className="mb-2 font-semibold">People in {me.workspace.name}</h2>
         <ul className="space-y-1 text-sm">
           {(members ?? []).map((m) => (
-            <li key={m.email}>
-              {m.display_name} <span className="text-muted">· {m.email} · {m.role}</span>
-              {m.email === me.email && <span className="text-muted"> (you)</span>}
+            <li key={m.user_id}>
+              {person.get(m.user_id)?.display_name ?? "Someone"}
+              <span className="text-muted">
+                {" "}
+                · {person.get(m.user_id)?.email} · {m.role}
+                {m.user_id === me.userId && " (you)"}
+              </span>
             </li>
           ))}
         </ul>

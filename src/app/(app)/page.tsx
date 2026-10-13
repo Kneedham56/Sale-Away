@@ -17,7 +17,7 @@ export default async function HomePage() {
   const { data: staleSetting } = await supabase.from("settings").select("value").eq("key", "stale_listing_days").maybeSingle();
   const staleDays = settingNumber({ v: staleSetting?.value }, "v", 90);
 
-  const ebay = await ebayStatusAndAutoSync();
+  const ebay = await ebayStatusAndAutoSync(member.workspace.id);
   const head = { count: "exact" as const, head: true };
   const [toShip, late, unlisted, ready, listed, stale, unmatched, month] = await Promise.all([
     supabase.from("sales_view").select("id", head).in("fulfillment_status", ["to_ship", "packed"]),

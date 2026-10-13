@@ -18,12 +18,12 @@ export const maxDuration = 300;
 type ShipTo = { name?: string; addressLine1?: string; addressLine2?: string; city?: string; stateOrProvince?: string; postalCode?: string };
 
 export default async function OutgoingPage({ searchParams }: PageProps<"/outgoing">) {
-  await requireMember();
+  const me = await requireMember();
   const sp = await searchParams;
   const byShipBy = sp.sort === "ship_by";
   const supabase = await createClient();
   const today = await todayIso();
-  const ebay = await ebayStatusAndAutoSync();
+  const ebay = await ebayStatusAndAutoSync(me.workspace.id);
 
   let q = supabase
     .from("sales_view")

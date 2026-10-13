@@ -25,7 +25,7 @@ export const maxDuration = 300;
 const UUID = /^[0-9a-f-]{36}$/i;
 
 export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
-  await requireMember();
+  const me = await requireMember();
   const { id } = await params;
   if (!UUID.test(id)) notFound();
   const supabase = await createClient();
@@ -97,6 +97,7 @@ export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
       <div className="grid gap-6 md:grid-cols-2">
         <ItemPhotos
           itemId={item.id}
+          workspaceId={me.workspace.id}
           photos={(photos ?? []).map((p) => ({
             id: p.id,
             url: urls.get(p.jpeg_path ?? p.storage_path) ?? null,

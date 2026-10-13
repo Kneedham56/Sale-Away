@@ -16,7 +16,7 @@ export async function GET(request: NextRequest) {
 
   const params = request.nextUrl.searchParams;
   if (params.get("error")) return back(`ebay=declined`);
-  let saved: { state: string; env: "sandbox" | "production"; scopes: string[] };
+  let saved: { state: string; env: "sandbox" | "production"; scopes: string[]; workspaceId: string };
   try {
     saved = JSON.parse(request.cookies.get("ebay_oauth")?.value ?? "");
   } catch {
@@ -24,13 +24,19 @@ export async function GET(request: NextRequest) {
   }
   const code = params.get("code");
   if (!code || params.get("state") !== saved.state) return back("ebay=bad-state");
+  if (!member.workspaces.some((w) => w.id === saved.workspaceId)) return back("ebay=bad-state");
 
   try {
-    await exchangeCodeAndStore(saved.env, code, saved.scopes, member.userId);
-    const user = await getEbayClient(saved.env).getUser();
+    await exchangeCodeAndStore(saved.env, saved.workspaceId, code, saved.scopes, member.userId);
+    const user = await getEbayClient(saved.env, saved.workspaceId).getUser();
     const admin = createAdminClient();
-    await admin.from("ebay_connection").update({ ebay_user_id: user.userId, ebay_username: user.username }).eq("environment", saved.env);
+    await admin
+      .from("ebay_connection")
+      .update({ ebay_user_id: user.userId, ebay_username: user.username })
+      .eq("workspace_id", saved.workspaceId)
+      .eq("environment", saved.env);
     await admin.from("activity_log").insert({
+      workspace_id: saved.workspaceId,
       actor: member.userId,
       action: "ebay.connected",
       detail: { environment: saved.env, username: user.username, scopes: saved.scopes },

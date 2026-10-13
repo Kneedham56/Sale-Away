@@ -64,8 +64,8 @@ export function checkReady(item: PublishItem, photoCount: number, policies: Poli
   return { ok: problems.length === 0, problems };
 }
 
-async function log(actor: string | null, action: string, detail: Record<string, unknown>) {
-  await createAdminClient().from("activity_log").insert({ actor, action, detail });
+async function log(ws: string, actor: string | null, action: string, detail: Record<string, unknown>) {
+  await createAdminClient().from("activity_log").insert({ workspace_id: ws, actor, action, detail });
 }
 
 export type PublishResult = {
@@ -82,7 +82,8 @@ export async function publishItem(
   supabase: SupabaseClient,
   itemId: string,
   env: EbayEnv,
-  actor: string | null
+  actor: string | null,
+  ws: string
 ): Promise<PublishResult> {
   const { data: item, error } = await supabase.from("items_view").select("*").eq("id", itemId).single();
   if (error || !item) throw new Error("Item not found.");
@@ -103,7 +104,7 @@ export async function publishItem(
   const check = checkReady(item, photos?.length ?? 0, policies);
   if (!check.ok) throw new Error(`Not ready: ${check.problems.join(" ")}`);
 
-  const client = getEbayClient(env);
+  const client = getEbayClient(env, ws);
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date());
   const sku = item.sku || buildSku(item, String(settings.sku_template ?? ""), item.date_listed ?? today);
 
@@ -159,8 +160,8 @@ export async function publishItem(
   const recordFailure = async (message: string) => {
     await supabase
       .from("ebay_listings")
-      .upsert({ item_id: itemId, environment: env, sku, status: "failed", last_error: message }, { onConflict: "environment,sku" });
-    await log(actor, "ebay.publish_failed", { environment: env, itemId, sku, error: message });
+      .upsert({ item_id: itemId, environment: env, sku, status: "failed", last_error: message }, { onConflict: "workspace_id,environment,sku" });
+    await log(ws, actor, "ebay.publish_failed", { environment: env, itemId, sku, error: message });
   };
 
   try {
@@ -178,15 +179,15 @@ export async function publishItem(
     if (!postal) throw new Error("Set the ship-from ZIP code in Settings.");
     await client.ensureLocation("home", postal);
     await client.putInventoryItem(inventoryItem);
-    await log(actor, "ebay.inventory_item.put", { environment: env, itemId, sku });
+    await log(ws, actor, "ebay.inventory_item.put", { environment: env, itemId, sku });
     const offerId = await client.upsertOffer(offer);
-    await log(actor, "ebay.offer.upsert", { environment: env, itemId, sku, offerId, price: offer.price });
+    await log(ws, actor, "ebay.offer.upsert", { environment: env, itemId, sku, offerId, price: offer.price });
     const listingId = await client.publishOffer(offerId);
-    await log(actor, "ebay.offer.publish", { environment: env, itemId, sku, offerId, listingId });
+    await log(ws, actor, "ebay.offer.publish", { environment: env, itemId, sku, offerId, listingId });
 
     await supabase.from("ebay_listings").upsert(
       { item_id: itemId, environment: env, sku, offer_id: offerId, listing_id: listingId, status: "published", last_error: null, published_at: new Date().toISOString() },
-      { onConflict: "environment,sku" }
+      { onConflict: "workspace_id,environment,sku" }
     );
     if (env === "production") {
       await supabase

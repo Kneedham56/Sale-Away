@@ -10,7 +10,7 @@
     "import": "tsx scripts/import-spreadsheet.ts",
     "typecheck": "tsc --noEmit",
     "db:migrate": "tsx scripts/migrate.ts",
-    "add-member": "tsx scripts/add-member.ts",
+    "add-member": "tsx --conditions=react-server scripts/add-member.ts",
     "icons": "node scripts/make-icons.mjs .",
     "set-password": "tsx scripts/set-password.ts",
     "ai-eval": "tsx scripts/ai-eval.ts",

@@ -67,13 +67,15 @@ export async function getAppToken(env: Exclude<EbayEnv, "mock">): Promise<string
 // ---------------------------------------------------------------------------
 class RestEbayClient implements EbayClient {
   private categoryTreeId: string | null = null;
-  constructor(readonly env: Exclude<EbayEnv, "mock">) {}
+  /** workspaceId: whose eBay account seller calls use (null = app-level calls only) */
+  constructor(readonly env: Exclude<EbayEnv, "mock">, private workspaceId: string | null) {}
 
   private async call<T>(
     path: string,
     opts: { method?: string; body?: unknown; user?: boolean; host?: "api" | "apiz" | "apim"; headers?: Record<string, string> } = {}
   ): Promise<{ data: T; headers: Headers; status: number }> {
-    const token = opts.user ? await getUserAccessToken(this.env) : await getAppToken(this.env);
+    if (opts.user && !this.workspaceId) throw new Error("No business chosen for this eBay call.");
+    const token = opts.user ? await getUserAccessToken(this.env, this.workspaceId!) : await getAppToken(this.env);
     const url = `${hosts(this.env)[opts.host ?? "api"]}${path}`;
     for (let attempt = 0; ; attempt++) {
       const res = await fetch(url, {
@@ -271,14 +273,15 @@ class RestEbayClient implements EbayClient {
   }
 }
 
-const clients = new Map<EbayEnv, EbayClient>();
+const clients = new Map<string, EbayClient>();
 
-/** The client for EBAY_ENV (or a specific environment). */
-export function getEbayClient(env: EbayEnv = ebayEnv()): EbayClient {
-  let c = clients.get(env);
+/** The client for an environment and business (seller calls use that business's connected eBay account). */
+export function getEbayClient(env: EbayEnv = ebayEnv(), workspaceId: string | null = null): EbayClient {
+  const k = `${env}:${workspaceId ?? "app"}`;
+  let c = clients.get(k);
   if (!c) {
-    c = env === "mock" ? new MockEbayClient() : new RestEbayClient(env);
-    clients.set(env, c);
+    c = env === "mock" ? new MockEbayClient() : new RestEbayClient(env, workspaceId);
+    clients.set(k, c);
   }
   return c;
 }

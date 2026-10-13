@@ -29,13 +29,16 @@ function expiresWithin30Days(iso: string | null) {
 }
 
 export default async function EbaySettingsPage({ searchParams }: PageProps<"/settings/ebay">) {
-  await requireMember();
+  const me = await requireMember();
   const sp = await searchParams;
   const env = ebayEnv();
   const supabase = await createClient();
   const admin = createAdminClient();
   const [{ data: connections }, { data: states }, { data: settingRows }] = await Promise.all([
-    admin.from("ebay_connection").select("environment, ebay_username, connected_at, refresh_token_expires_at, scopes"),
+    admin
+      .from("ebay_connection")
+      .select("environment, ebay_username, connected_at, refresh_token_expires_at, scopes")
+      .eq("workspace_id", me.workspace.id),
     supabase.from("ebay_sync_state").select("*"),
     supabase.from("settings").select("key, value").in("key", ["ebay_policies", "ebay_postal_code", "sku_template"]),
   ]);
@@ -47,7 +50,7 @@ export default async function EbaySettingsPage({ searchParams }: PageProps<"/set
   let policyError: string | null = null;
   if (env === "mock" || conn) {
     try {
-      policies = await getEbayClient(env).getPolicies();
+      policies = await getEbayClient(env, me.workspace.id).getPolicies();
     } catch (e) {
       policyError = e instanceof Error ? e.message : String(e);
     }

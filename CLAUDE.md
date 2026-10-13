@@ -16,10 +16,11 @@ The full plan is `docs/PLAN.md`. Build one phase at a time and stop at each gate
 
 - `npm run dev` / `npm run build` / `npm run lint` / `npm run typecheck`
 - `npm run db:migrate`: applies `supabase/migrations/*.sql` once each (needs `SUPABASE_DB_URL`)
-- `npm run add-member -- email "Name" [seller|admin]`: creates a login and adds it to `members`
+- `npm run add-member -- email "Name" [seller|admin] [--business "Name"]`: creates a login (and a new business it owns)
 - `npm run set-password -- email`: prompts (hidden) and sets that member's password
-- `npm run import -- "data/<file>.xlsx" [--apply]`: spreadsheet import; dry run writes `data/import-report.md`
-- `npm run db:snapshot -- [name]` / `npm run db:restore -- <file> [--photos]`: save and put back all app data
+- `npm run import -- "data/<file>.xlsx" [--apply --business "Name"]`: spreadsheet import; dry run writes `data/import-report.md`
+- `npm run db:snapshot -- [name]` / `npm run db:restore -- <file> [--business "Name"] [--photos]`: save and put back app data
+  (whole database, or reset one business)
   (`data/snapshots/`, gitignored; logins and the eBay connection are never touched)
 - `npm test`: node:test suites in `tests/` (run with the react-server condition so `server-only` modules load)
 - `npm run ai-eval -- [count] [model]`: prices N sold items with the listing prompt; report in `data/ai-eval.md`
@@ -45,7 +46,14 @@ The full plan is `docs/PLAN.md`. Build one phase at a time and stop at each gate
 - Next 16 renamed middleware to `src/proxy.ts`. With Cache Components, anything reading cookies (auth, Supabase queries)
   must render inside `<Suspense>`. Every route folder under `(app)` has a `loading.tsx` (re-exporting `(app)/loading.tsx`);
   add one for each new route or instant-navigation validation errors appear. The nav reads `usePathname()` inside Suspense.
-- Pages call `requireMember()` (`src/lib/auth.ts`) first. RLS allows only rows in `members`.
+- **Businesses (workspaces):** every data table has `workspace_id`. The active business id lives in the `sa_ws` cookie and is
+  sent as the `x-workspace-id` header by `createClient()`; RLS (`request_workspace()` + `can_access()`) limits every query to
+  that business and new rows default to it, so user-client code never sets `workspace_id`. Code using
+  `createAdminClient()` bypasses RLS and MUST filter/stamp `workspace_id` itself (eBay sync, tokens, cron, scripts).
+  Photos live at `item-photos/<workspace_id>/<item_id>/...` (storage policy checks the first folder).
+- Pages call `requireMember()` (`src/lib/auth.ts`) first; it returns the member, the active `workspace` and all
+  `workspaces`. Admins (Doc) belong to every business; `/businesses` switches (`/api/workspace?id=`) and creates them.
+- Upsert conflict targets include `workspace_id` (e.g. `workspace_id,key`, `workspace_id,name`).
 - `createClient()` from `@/lib/supabase/server` acts as the user; `createAdminClient()` bypasses RLS and is for
   server jobs only (eBay tokens, cron, account deletion).
 - Dates are her local (Las Vegas) dates: use `todayIso()` from `src/lib/dates.ts`, never `new Date()` in renders.

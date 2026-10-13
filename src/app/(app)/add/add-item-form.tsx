@@ -24,7 +24,7 @@ function readSticky(): Sticky {
   }
 }
 
-export function AddItemForm({ lookups, today }: { lookups: Lookups; today: string }) {
+export function AddItemForm({ lookups, today, workspaceId }: { lookups: Lookups; today: string; workspaceId: string }) {
   const router = useRouter();
   const itemId = useRef<string | null>(null);
   const [formKey, setFormKey] = useState(0);
@@ -61,7 +61,7 @@ export function AddItemForm({ lookups, today }: { lookups: Lookups; today: strin
     const id = getItemId();
     for (const file of Array.from(files)) {
       const key = crypto.randomUUID();
-      const promise = uploadPhoto(id, file);
+      const promise = uploadPhoto(workspaceId, id, file);
       setPhotos((p) => [...p, { key, previewUrl: URL.createObjectURL(file), status: "uploading", promise }]);
       promise.then(
         (result) => setPhotos((p) => p.map((x) => (x.key === key ? { ...x, status: "done", result } : x))),

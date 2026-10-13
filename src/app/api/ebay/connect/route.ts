@@ -9,12 +9,13 @@ export async function GET(request: NextRequest) {
   const member = await currentMember();
   if (!member) return NextResponse.redirect(new URL("/login", request.url));
   const env = request.nextUrl.searchParams.get("env") === "sandbox" ? "sandbox" : "production";
-  if (!hasCredentials(env)) return NextResponse.redirect(new URL(`/settings?ebay=missing-keys&env=${env}`, request.url));
+  if (!hasCredentials(env)) return NextResponse.redirect(new URL(`/settings/ebay?ebay=missing-keys&env=${env}`, request.url));
 
   const state = randomBytes(24).toString("base64url");
   const scopes = userScopes(writeEnabled());
   const res = NextResponse.redirect(consentUrl(env, scopes, state));
-  res.cookies.set("ebay_oauth", JSON.stringify({ state, env, scopes }), {
+  // Remember which business is connecting: the callback stores the account for that business
+  res.cookies.set("ebay_oauth", JSON.stringify({ state, env, scopes, workspaceId: member.workspace.id }), {
     httpOnly: true,
     secure: true,
     sameSite: "lax",

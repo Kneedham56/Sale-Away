@@ -26,11 +26,11 @@ function must<T>(r: { data: T; error: { message: string } | null }): NonNullable
 /** Remembers new categories and storage spots so they show up in the pick lists. */
 async function rememberLookups(supabase: Db, category: string | null, location: string | null) {
   if (category)
-    await supabase.from("categories").upsert({ name: category, sort_order: 999 }, { onConflict: "name", ignoreDuplicates: true });
+    await supabase.from("categories").upsert({ name: category, sort_order: 999 }, { onConflict: "workspace_id,name", ignoreDuplicates: true });
   if (location)
     await supabase
       .from("storage_locations")
-      .upsert({ name: location, kind: /^\d+$/.test(location) ? "bin" : "place" }, { onConflict: "name", ignoreDuplicates: true });
+      .upsert({ name: location, kind: /^\d+$/.test(location) ? "bin" : "place" }, { onConflict: "workspace_id,name", ignoreDuplicates: true });
 }
 
 /** Trip picked from the list, or a new one described inline ("new"). */

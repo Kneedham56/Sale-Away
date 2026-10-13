@@ -68,13 +68,13 @@ async function uploadWithRetry(path: string, body: Blob, contentType: string, at
   throw lastError instanceof Error ? lastError : new Error("Upload failed");
 }
 
-/** Uploads one photo under the item's folder. */
-export async function uploadPhoto(itemId: string, file: File): Promise<NewPhoto> {
+/** Uploads one photo under <business>/<item>/ (storage rules only allow her own business folder). */
+export async function uploadPhoto(workspaceId: string, itemId: string, file: File): Promise<NewPhoto> {
   const photoId = crypto.randomUUID();
   const { full, thumb, converted } = await processPhoto(file);
   const ext = converted ? "jpg" : (file.name.split(".").pop() || "bin").toLowerCase();
-  const fullPath = `${itemId}/${photoId}.${ext}`;
-  const thumbPath = `${itemId}/${photoId}_thumb.jpg`;
+  const fullPath = `${workspaceId}/${itemId}/${photoId}.${ext}`;
+  const thumbPath = `${workspaceId}/${itemId}/${photoId}_thumb.jpg`;
   await uploadWithRetry(fullPath, full, converted ? "image/jpeg" : file.type || "application/octet-stream");
   if (thumb) await uploadWithRetry(thumbPath, thumb, "image/jpeg");
   return {

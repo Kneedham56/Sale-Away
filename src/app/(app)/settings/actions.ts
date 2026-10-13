@@ -26,7 +26,7 @@ export async function saveRates(_prev: unknown, fd: FormData): Promise<ActionRes
       ...(mileage !== null ? [{ key: "mileage_rate", value: mileage }] : []),
       ...(stale !== null ? [{ key: "stale_listing_days", value: Math.round(stale) }] : []),
     ];
-    if (rows.length) await supabase.from("settings").upsert(rows, { onConflict: "key" });
+    if (rows.length) await supabase.from("settings").upsert(rows, { onConflict: "workspace_id,key" });
     refresh();
   });
 }
@@ -46,11 +46,11 @@ export async function renameLookup(_prev: unknown, fd: FormData): Promise<Action
     if (error) throw new Error(error.message);
     if (kind === "category") {
       await supabase.from("sales").update({ category_snapshot: to }).eq("category_snapshot", from);
-      await supabase.from("categories").upsert({ name: to }, { onConflict: "name", ignoreDuplicates: true });
+      await supabase.from("categories").upsert({ name: to }, { onConflict: "workspace_id,name", ignoreDuplicates: true });
     } else {
       await supabase
         .from("storage_locations")
-        .upsert({ name: to, kind: /^\d+$/.test(to) ? "bin" : "place" }, { onConflict: "name", ignoreDuplicates: true });
+        .upsert({ name: to, kind: /^\d+$/.test(to) ? "bin" : "place" }, { onConflict: "workspace_id,name", ignoreDuplicates: true });
     }
     await supabase.from(table).delete().eq("name", from);
     refresh();
@@ -65,10 +65,10 @@ export async function addLookup(_prev: unknown, fd: FormData): Promise<ActionRes
     const name = requiredText(fd, "name", "Name");
     const { error } =
       kind === "category"
-        ? await supabase.from("categories").upsert({ name, sort_order: 999 }, { onConflict: "name", ignoreDuplicates: true })
+        ? await supabase.from("categories").upsert({ name, sort_order: 999 }, { onConflict: "workspace_id,name", ignoreDuplicates: true })
         : await supabase
             .from("storage_locations")
-            .upsert({ name, kind: /^\d+$/.test(name) ? "bin" : "place" }, { onConflict: "name", ignoreDuplicates: true });
+            .upsert({ name, kind: /^\d+$/.test(name) ? "bin" : "place" }, { onConflict: "workspace_id,name", ignoreDuplicates: true });
     if (error) throw new Error(error.message);
     refresh();
     return `Added “${name}”.`;
@@ -86,7 +86,7 @@ export async function saveAiSettings(_prev: unknown, fd: FormData): Promise<Acti
     }
     const { error } = await supabase.from("settings").upsert(
       rows.map((r) => ({ ...r, updated_at: new Date().toISOString() })),
-      { onConflict: "key" }
+      { onConflict: "workspace_id,key" }
     );
     if (error) throw new Error(error.message);
     refresh();

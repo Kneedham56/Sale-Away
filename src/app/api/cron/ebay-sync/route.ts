@@ -13,12 +13,19 @@ export async function GET(request: NextRequest) {
   }
   const env = ebayEnv();
   if (env === "mock") return NextResponse.json({ skipped: "EBAY_ENV is mock" });
-  const { data: conn } = await createAdminClient().from("ebay_connection").select("environment").eq("environment", env).maybeSingle();
-  if (!conn) return NextResponse.json({ skipped: `eBay ${env} not connected` });
-  try {
-    const result = await runEbaySync(env);
-    return NextResponse.json(result);
-  } catch (e) {
-    return NextResponse.json({ error: e instanceof Error ? e.message : String(e) }, { status: 500 });
+  // Every business with a connected eBay account, one after another
+  const { data: conns } = await createAdminClient().from("ebay_connection").select("workspace_id").eq("environment", env);
+  if (!conns?.length) return NextResponse.json({ skipped: `no business has eBay ${env} connected` });
+  const results: Record<string, unknown> = {};
+  let failed = false;
+  for (const c of conns) {
+    try {
+      const r = await runEbaySync(env, c.workspace_id);
+      results[c.workspace_id] = { orders: r.orders, inserted: r.inserted, updated: r.updated, feesUpdated: r.feesUpdated };
+    } catch (e) {
+      failed = true;
+      results[c.workspace_id] = { error: e instanceof Error ? e.message : String(e) };
+    }
   }
+  return NextResponse.json(results, { status: failed ? 500 : 200 });
 }

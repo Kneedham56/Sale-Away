@@ -6,7 +6,7 @@ import { uploadPhoto } from "@/lib/photo-upload";
 
 type Photo = { id: string; url: string | null; thumbUrl: string | null };
 
-export function ItemPhotos({ itemId, photos }: { itemId: string; photos: Photo[] }) {
+export function ItemPhotos({ itemId, workspaceId, photos }: { itemId: string; workspaceId: string; photos: Photo[] }) {
   const [selected, setSelected] = useState(0);
   const [uploading, setUploading] = useState(0);
   const [error, setError] = useState<string | null>(null);
@@ -17,7 +17,7 @@ export function ItemPhotos({ itemId, photos }: { itemId: string; photos: Photo[]
     if (!files?.length) return;
     setError(null);
     setUploading(files.length);
-    const results = await Promise.allSettled(Array.from(files).map((f) => uploadPhoto(itemId, f)));
+    const results = await Promise.allSettled(Array.from(files).map((f) => uploadPhoto(workspaceId, itemId, f)));
     const ok = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
     if (ok.length) {
       const res = await addPhotos(itemId, ok);

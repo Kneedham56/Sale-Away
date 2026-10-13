@@ -12,13 +12,18 @@ import { publishItem, type PublishResult } from "@/lib/ebay/publish";
 
 export async function syncNow(): Promise<ActionResult<SyncResult>> {
   return attempt(async () => {
-    await requireMember();
+    const me = await requireMember();
     const env = ebayEnv();
     if (env !== "mock") {
-      const { data } = await createAdminClient().from("ebay_connection").select("environment").eq("environment", env).maybeSingle();
+      const { data } = await createAdminClient()
+        .from("ebay_connection")
+        .select("environment")
+        .eq("workspace_id", me.workspace.id)
+        .eq("environment", env)
+        .maybeSingle();
       if (!data) throw new FormError(`Connect eBay (${env}) first.`);
     }
-    const result = await runEbaySync(env);
+    const result = await runEbaySync(env, me.workspace.id);
     refresh();
     return result;
   });
@@ -29,9 +34,11 @@ export async function disconnectEbay(fd: FormData): Promise<void> {
   const env = text(fd, "environment");
   if (env !== "production" && env !== "sandbox") throw new FormError("Unknown environment.");
   const admin = createAdminClient();
-  await admin.from("ebay_connection").delete().eq("environment", env);
-  forgetUserToken(env);
-  await admin.from("activity_log").insert({ actor: me.userId, action: "ebay.disconnected", detail: { environment: env } });
+  await admin.from("ebay_connection").delete().eq("workspace_id", me.workspace.id).eq("environment", env);
+  forgetUserToken(env, me.workspace.id);
+  await admin
+    .from("activity_log")
+    .insert({ workspace_id: me.workspace.id, actor: me.userId, action: "ebay.disconnected", detail: { environment: env } });
   refresh();
 }
 
@@ -54,7 +61,7 @@ export async function saveEbaySettings(_prev: unknown, fd: FormData): Promise<Ac
       { key: "ebay_postal_code", value: zip },
       { key: "sku_template", value: text(fd, "sku_template") ?? "{cost}-{lot}-{listed}-{n}" },
     ];
-    const { error } = await supabase.from("settings").upsert(rows, { onConflict: "key" });
+    const { error } = await supabase.from("settings").upsert(rows, { onConflict: "workspace_id,key" });
     if (error) throw new Error(error.message);
     refresh();
   });
@@ -67,7 +74,7 @@ export async function publishToEbay(itemId: string): Promise<ActionResult<Publis
     const env = ebayEnv();
     if (env !== "mock" && !writeEnabled()) throw new FormError("Publishing is switched off (EBAY_WRITE_ENABLED).");
     const supabase = await createClient();
-    const result = await publishItem(supabase, itemId, env, me.userId);
+    const result = await publishItem(supabase, itemId, env, me.userId, me.workspace.id);
     if (!result.dryRun) refresh();
     return result;
   });

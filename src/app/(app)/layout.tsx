@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Suspense } from "react";
 import { BottomNav, BottomNavView, TopNav, TopNavView } from "./nav";
 import { OfflineBanner } from "./offline-banner";
+import { BusinessName } from "./business-name";
 
 export default function AppLayout({ children }: LayoutProps<"/">) {
   return (
@@ -14,6 +15,9 @@ export default function AppLayout({ children }: LayoutProps<"/">) {
             <img src="/icons/icon.svg" alt="" className="h-8 w-8 rounded-lg" />
             <span className="text-lg font-semibold tracking-tight">Sale Away</span>
           </Link>
+          <Suspense>
+            <BusinessName />
+          </Suspense>
           <Suspense fallback={<TopNavView path="" />}>
             <TopNav />
           </Suspense>
