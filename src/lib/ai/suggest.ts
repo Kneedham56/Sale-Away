@@ -108,8 +108,15 @@ export async function suggestListing(
 
   try {
     if (!images.length && !notes.title) throw new Error("Add a photo or a description first.");
-    const result = await callGemini({ model: settings.listingModel, prompt, images, schema: LISTING_SCHEMA });
+    const result = await callGemini({
+      model: settings.listingModel,
+      prompt,
+      images,
+      schema: LISTING_SCHEMA,
+      fallbackModel: settings.quickModel,
+    });
     const suggestion = normalizeListing(result.json);
+    if (result.fellBack) suggestion.flags.unshift("The main model was busy, so the faster model answered. Try again later for a second opinion.");
     if (!images.length) suggestion.flags.unshift("No photos were sent; this is based on her notes only.");
     if (comps?.comps?.length) suggestion.comps = comps.comps;
     if (opts.validate && suggestion.category) {

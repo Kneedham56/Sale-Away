@@ -13,13 +13,39 @@ export type GeminiResult = {
 const API = "https://generativelanguage.googleapis.com/v1beta/models";
 
 /** One structured-output call with images. Throws a readable error on failure. */
-export async function callGemini(opts: {
+type CallOpts = {
   model: string;
   prompt: string;
   images: InlineImage[];
   schema: object;
   timeoutMs?: number;
-}): Promise<GeminiResult> {
+  /** Tried once if the main model stays overloaded (503) after retries */
+  fallbackModel?: string;
+};
+
+class Overloaded extends Error {}
+
+/** Retries "high demand" (503) twice with backoff, then tries the fallback model if one is given. */
+export async function callGemini(opts: CallOpts): Promise<GeminiResult & { fellBack: boolean }> {
+  for (let attempt = 0; attempt < 3; attempt++) {
+    try {
+      return { ...(await callOnce(opts)), fellBack: false };
+    } catch (e) {
+      if (!(e instanceof Overloaded)) throw e;
+      if (attempt < 2) await new Promise((r) => setTimeout(r, attempt === 0 ? 3000 : 8000));
+    }
+  }
+  if (opts.fallbackModel && opts.fallbackModel !== opts.model) {
+    try {
+      return { ...(await callOnce({ ...opts, model: opts.fallbackModel })), fellBack: true };
+    } catch (e) {
+      if (!(e instanceof Overloaded)) throw e;
+    }
+  }
+  throw new Error("Gemini is busy right now (high demand). Try again in a minute, or use Copy Prompt.");
+}
+
+async function callOnce(opts: CallOpts): Promise<GeminiResult> {
   const key = process.env.GEMINI_API_KEY;
   if (!key) throw new Error("GEMINI_API_KEY is not set. Use Copy Prompt mode, or add the key on the server.");
   const controller = new AbortController();
@@ -45,6 +71,7 @@ export async function callGemini(opts: {
     const body = await res.json().catch(() => null);
     if (!res.ok) {
       const msg = body?.error?.message ?? `HTTP ${res.status}`;
+      if (res.status === 503 || /high demand|overloaded/i.test(msg)) throw new Overloaded(msg);
       if (res.status === 429) throw new Error(`Gemini rate limit reached (free tier). Wait a minute or use Copy Prompt. ${msg}`);
       throw new Error(`Gemini error: ${msg}`);
     }
