@@ -7,7 +7,7 @@ export function SignOutButton() {
   const router = useRouter();
   return (
     <button
-      className="rounded-lg px-3 py-2 text-sm text-muted active:bg-border/50"
+      className="btn-ghost"
       onClick={async () => {
         await createClient().auth.signOut();
         router.replace("/login");

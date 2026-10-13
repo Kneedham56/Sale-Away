@@ -20,15 +20,25 @@ The full plan is `docs/PLAN.md`. Build one phase at a time and stop at each gate
 - `npm run set-password -- email`: prompts (hidden) and sets that member's password
 - `npm run import -- "data/<file>.xlsx" [--apply]`: spreadsheet import; dry run writes `data/import-report.md`
 
+## Layout
+
+- `src/app/(app)/`: signed-in screens (Home, add, unlisted, listed, items/[id], items/[id]/sell, sold, sales/[id], outgoing,
+  trips, expenses, taxes (+ CSV export route), reports, settings, more). Server actions live in `actions.ts` beside each feature.
+- `src/lib/data/`: server data helpers (lookups, lot-code generator `createSource`, tax summary).
+- `src/lib/photo-upload.ts`: phone-side JPEG + thumbnail and retrying uploads to `item-photos/<itemId>/`.
+- Report views and `tax_summary()` are in `supabase/migrations/20261013000001_phase1_reports.sql`.
+
 ## Conventions
 
 - **Never commit anything under `/data`**, the spreadsheet, exports, or credentials. `.env.local` holds secrets.
 - Next 16 renamed middleware to `src/proxy.ts`. With Cache Components, anything reading cookies (auth, Supabase queries)
-  must render inside `<Suspense>`; `(app)/loading.tsx` gives every page its own boundary.
+  must render inside `<Suspense>`. Every route folder under `(app)` has a `loading.tsx` (re-exporting `(app)/loading.tsx`);
+  add one for each new route or instant-navigation validation errors appear. The nav reads `usePathname()` inside Suspense.
 - Pages call `requireMember()` (`src/lib/auth.ts`) first. RLS allows only rows in `members`.
 - `createClient()` from `@/lib/supabase/server` acts as the user; `createAdminClient()` bypasses RLS and is for
   server jobs only (eBay tokens, cron, account deletion).
 - Dates are her local (Las Vegas) dates: use `todayIso()` from `src/lib/dates.ts`, never `new Date()` in renders.
+- Mutations: server actions return `ActionResult` via `attempt()` (`src/lib/form.ts`) and call `refresh()`.
 - Unknown values are `null`, never 0 (cost, category, etc.). Money is `numeric(10,2)`.
 - Net profit, days active and monthly totals are computed in views (`sales_view`, `items_view`, `monthly_summary`).
 - Schema changes: add a new timestamped file in `supabase/migrations/`; never edit an applied one.
