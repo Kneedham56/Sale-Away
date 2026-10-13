@@ -19,6 +19,8 @@ The full plan is `docs/PLAN.md`. Build one phase at a time and stop at each gate
 - `npm run add-member -- email "Name" [seller|admin]`: creates a login and adds it to `members`
 - `npm run set-password -- email`: prompts (hidden) and sets that member's password
 - `npm run import -- "data/<file>.xlsx" [--apply]`: spreadsheet import; dry run writes `data/import-report.md`
+- `npm run db:snapshot -- [name]` / `npm run db:restore -- <file> [--photos]`: save and put back all app data
+  (`data/snapshots/`, gitignored; logins and the eBay connection are never touched)
 - `npm test`: node:test suites in `tests/` (run with the react-server condition so `server-only` modules load)
 - `npm run ai-eval -- [count] [model]`: prices N sold items with the listing prompt; report in `data/ai-eval.md`
 

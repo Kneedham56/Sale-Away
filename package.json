@@ -14,7 +14,9 @@
     "icons": "node scripts/make-icons.mjs .",
     "set-password": "tsx scripts/set-password.ts",
     "ai-eval": "tsx scripts/ai-eval.ts",
-    "test": "tsx --conditions=react-server --test tests/*.test.ts"
+    "test": "tsx --conditions=react-server --test tests/*.test.ts",
+    "db:snapshot": "tsx scripts/db-snapshot.ts snapshot",
+    "db:restore": "tsx scripts/db-snapshot.ts restore"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",
