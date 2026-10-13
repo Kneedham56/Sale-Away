@@ -19,6 +19,8 @@ The full plan is `docs/PLAN.md`. Build one phase at a time and stop at each gate
 - `npm run add-member -- email "Name" [seller|admin]`: creates a login and adds it to `members`
 - `npm run set-password -- email`: prompts (hidden) and sets that member's password
 - `npm run import -- "data/<file>.xlsx" [--apply]`: spreadsheet import; dry run writes `data/import-report.md`
+- `npm test`: node:test suites in `tests/` (run with the react-server condition so `server-only` modules load)
+- `npm run ai-eval -- [count] [model]`: prices N sold items with the listing prompt; report in `data/ai-eval.md`
 
 ## Layout
 
@@ -27,6 +29,13 @@ The full plan is `docs/PLAN.md`. Build one phase at a time and stop at each gate
 - `src/lib/data/`: server data helpers (lookups, lot-code generator `createSource`, tax summary).
 - `src/lib/photo-upload.ts`: phone-side JPEG + thumbnail and retrying uploads to `item-photos/<itemId>/`.
 - Report views and `tax_summary()` are in `supabase/migrations/20261013000001_phase1_reports.sql`.
+- `src/lib/ai/`: prompts (defaults; editable copies live in `settings`), Gemini REST call, JSON schema, tolerant parsers
+  for Copy Prompt answers, `suggestListing()` / `quickCheck()` (every run logged in `ai_runs`).
+- `src/lib/ebay/`: `EbayClient` (rest + mock, chosen by `EBAY_ENV`), OAuth tokens (refresh token AES-GCM encrypted with
+  `EBAY_TOKEN_KEY`), `sync.ts` (orders -> sales, finances -> actual fees/labels/refunds), `publish.ts` (Inventory API),
+  `status.ts` (banners + background sync via `after()` when the last sync is >15 min old).
+- API routes: `/api/ebay/connect|callback` (OAuth), `/api/ebay/account-deletion` (public, signature-verified),
+  `/api/cron/ebay-sync` (Bearer `CRON_SECRET`; Vercel daily cron + `.github/workflows/ebay-sync.yml` every 15 min).
 
 ## Conventions
 
@@ -42,5 +51,8 @@ The full plan is `docs/PLAN.md`. Build one phase at a time and stop at each gate
 - Unknown values are `null`, never 0 (cost, category, etc.). Money is `numeric(10,2)`.
 - Net profit, days active and monthly totals are computed in views (`sales_view`, `items_view`, `monthly_summary`).
 - Schema changes: add a new timestamped file in `supabase/migrations/`; never edit an applied one.
-- All eBay calls will go through one `EbayClient` interface (`EBAY_ENV` = mock | sandbox | production).
-- AI goes through one `suggestListing()`; the AI never publishes.
+- All eBay calls go through `getEbayClient()` (`EBAY_ENV` = mock | sandbox | production). Mock never writes her data
+  (sync and publish are previews); sandbox sales are stored with `environment = 'sandbox'` and excluded by `sales_view`,
+  so always read sales through `sales_view` (or filter `environment`). Publishing needs `EBAY_WRITE_ENABLED=true`.
+- Every eBay write is logged to `activity_log`. Buyer names/addresses are scrubbed 30 days after shipping.
+- AI goes through `suggestListing()`; it only fills fields. She accepts (item -> Ready to List); the AI never publishes.

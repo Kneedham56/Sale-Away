@@ -1,7 +1,7 @@
 import { NextResponse, type NextRequest } from "next/server";
 import { createServerClient } from "@supabase/ssr";
 
-const PUBLIC_PATHS = ["/login", "/auth", "/api/ebay/account-deletion"];
+const PUBLIC_PATHS = ["/login", "/auth", "/api/ebay/account-deletion", "/api/cron"];
 
 // Refreshes the Supabase session cookie on every request and sends signed-out visitors to /login.
 // This is an optimistic check only; pages still verify membership through requireMember().

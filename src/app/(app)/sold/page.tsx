@@ -35,7 +35,7 @@ export default async function SoldPage({ searchParams }: PageProps<"/sold">) {
   const [{ data: sales }, { data: summary }, { count: unmatched }] = await Promise.all([
     list.limit(1000),
     supabase.from("monthly_summary").select("*").eq("month", start).maybeSingle(),
-    supabase.from("sales").select("id", { count: "exact", head: true }).is("item_id", null),
+    supabase.from("sales_view").select("id", { count: "exact", head: true }).is("item_id", null),
   ]);
   const estimated = (sales ?? []).filter((s) => s.fee_is_estimate).length;
 

@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState } from "react";
-import { addLookup, renameLookup, saveRates } from "./actions";
+import { addLookup, renameLookup, saveAiSettings, saveRates } from "./actions";
 import { DataList, Field, SubmitButton } from "@/components/fields";
 import type { Platform } from "@/lib/data/lookups";
 
@@ -67,5 +67,37 @@ export function LookupTools({ kind, label, options }: { kind: "category" | "stor
       </form>
       {addState && <p className={`text-sm ${addState.ok ? "text-ok" : "text-danger"}`}>{addState.ok ? addState.data : addState.error}</p>}
     </div>
+  );
+}
+
+export function AiSettingsForm({ values, defaults }: { values: Record<string, string>; defaults: Record<string, string> }) {
+  const [state, action] = useActionState(saveAiSettings, null);
+  const v = (k: string) => values[k] || defaults[k] || "";
+  return (
+    <form action={action} className="space-y-4">
+      <Field label="Store rules" hint="Added to every listing prompt.">
+        <input name="store_rules" className="input" defaultValue={v("store_rules")} />
+      </Field>
+      <Field label="Listing prompt" hint="[NOTES] and [STORE_RULES] are filled in for each item. The app asks for JSON with the same fields.">
+        <textarea name="ai_listing_prompt" className="input min-h-64 font-mono text-xs" defaultValue={v("ai_listing_prompt")} />
+      </Field>
+      <Field label="Quick Check prompt">
+        <textarea name="ai_quick_prompt" className="input min-h-40 font-mono text-xs" defaultValue={v("ai_quick_prompt")} />
+      </Field>
+      <Field label="eBay description template" hint="Use {title}, {description} and {condition}. Leave blank to use the AI description as is.">
+        <textarea name="description_template" className="input min-h-32" defaultValue={v("description_template")} />
+      </Field>
+      <div className="grid grid-cols-2 gap-3">
+        <Field label="Listing model">
+          <input name="ai_listing_model" className="input" defaultValue={v("ai_listing_model")} />
+        </Field>
+        <Field label="Quick Check model">
+          <input name="ai_quick_model" className="input" defaultValue={v("ai_quick_model")} />
+        </Field>
+      </div>
+      {state && !state.ok && <p className="text-sm text-danger">{state.error}</p>}
+      {state?.ok && <p className="text-sm font-medium text-ok">Saved.</p>}
+      <SubmitButton>Save AI settings</SubmitButton>
+    </form>
   );
 }

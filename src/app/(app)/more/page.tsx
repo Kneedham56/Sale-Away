@@ -7,13 +7,18 @@ import { SignOutButton } from "./sign-out-button";
 export const metadata: Metadata = { title: "More" };
 
 const LINKS = [
+  ["/quick", "Quick Check", "Snap a photo in the store: KEEP or DONATE"],
+  ["/ready", "Ready to list", "Reviewed listings: copy into eBay or publish"],
+  ["/batch", "Batch generate", "AI listings for several unlisted items at once"],
   ["/outgoing", "Outgoing", "Orders to pack and ship, pick list"],
   ["/sold", "Sold", "Month by month, replaces the monthly tabs"],
   ["/trips", "Sourcing trips", "Where things came from and what they earned"],
   ["/expenses", "Expenses & mileage", "Quick add for supplies, bills and miles"],
   ["/reports", "Reports", "By month, trip, category, platform; aging"],
   ["/taxes", "Taxes", "Year-end figures and export"],
-  ["/settings", "Settings", "Fee rates, storage spots, categories"],
+  ["/settings", "Settings", "Fee rates, storage spots, categories, AI prompts"],
+  ["/settings/ebay", "eBay", "Connect, sync orders and fees, listing defaults"],
+  ["/activity", "Activity", "Every change the app made on eBay"],
 ] as const;
 
 export default async function MorePage() {

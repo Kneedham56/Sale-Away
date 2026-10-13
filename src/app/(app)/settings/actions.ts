@@ -74,3 +74,21 @@ export async function addLookup(_prev: unknown, fd: FormData): Promise<ActionRes
     return `Added “${name}”.`;
   });
 }
+
+const TEXT_SETTINGS = ["ai_listing_prompt", "ai_quick_prompt", "store_rules", "description_template", "ai_listing_model", "ai_quick_model"];
+
+export async function saveAiSettings(_prev: unknown, fd: FormData): Promise<ActionResult> {
+  return attempt(async () => {
+    const supabase = await db();
+    const rows = TEXT_SETTINGS.map((key) => ({ key, value: String(fd.get(key) ?? "").trim() }));
+    for (const r of rows) {
+      if (/model$/.test(r.key) && r.value && !/^[a-z0-9.\-]+$/i.test(r.value)) throw new FormError("Model names look like gemini-flash-latest.");
+    }
+    const { error } = await supabase.from("settings").upsert(
+      rows.map((r) => ({ ...r, updated_at: new Date().toISOString() })),
+      { onConflict: "key" }
+    );
+    if (error) throw new Error(error.message);
+    refresh();
+  });
+}

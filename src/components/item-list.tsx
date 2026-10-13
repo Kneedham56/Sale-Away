@@ -49,7 +49,7 @@ export async function ItemList({ mode, params }: { mode: "unlisted" | "listed"; 
   let query = supabase
     .from("items_view")
     .select("id, title, kind, category, format, cost, list_price, storage_location, lot_code, date_sourced, date_listed, days_active, thumb_path", { count: "exact" });
-  query = mode === "unlisted" ? query.in("status", ["intake", "unlisted", "ready_to_list"]) : query.eq("status", "listed");
+  query = mode === "unlisted" ? query.in("status", ["intake", "unlisted"]) : query.eq("status", "listed");
   if (q) query = query.or(`title.ilike.%${q}%,storage_location.ilike.%${q}%,lot_code.ilike.%${q}%,sku.ilike.%${q}%`);
   if (kind) query = query.eq("kind", kind);
   if (category) query = query.eq("category", category);

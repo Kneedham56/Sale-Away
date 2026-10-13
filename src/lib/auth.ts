@@ -30,3 +30,19 @@ export async function requireMember(): Promise<Member> {
     role: member.role,
   };
 }
+
+/** For route handlers: the signed-in member, or null (no redirect). */
+export async function currentMember(): Promise<Member | null> {
+  const supabase = await createClient();
+  const { data } = await supabase.auth.getClaims();
+  const userId = data?.claims?.sub;
+  if (!userId) return null;
+  const { data: member } = await supabase
+    .from("members")
+    .select("user_id, email, display_name, role")
+    .eq("user_id", userId)
+    .maybeSingle();
+  return member
+    ? { userId: member.user_id, email: member.email, displayName: member.display_name, role: member.role }
+    : null;
+}

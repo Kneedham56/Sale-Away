@@ -14,8 +14,13 @@ import { StatusActions } from "./status-actions";
 import { EditItemForm } from "./edit-item-form";
 import { deleteItem } from "../actions";
 import { ConfirmButton } from "@/components/fields";
+import { ListingCopy } from "@/components/listing-copy";
+import { ListingAssistant } from "./listing-assistant";
+import type { ListingSuggestion } from "@/lib/ai/types";
 
 export const metadata: Metadata = { title: "Item" };
+// Generate Listing can take up to a minute on the full model
+export const maxDuration = 300;
 
 const UUID = /^[0-9a-f-]{36}$/i;
 
@@ -25,15 +30,27 @@ export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
   if (!UUID.test(id)) notFound();
   const supabase = await createClient();
 
-  const [{ data: item }, { data: photos }, { data: events }, { data: sales }, lookups, today] = await Promise.all([
+  const [{ data: item }, { data: photos }, { data: events }, { data: sales }, lookups, today, { data: runs }] = await Promise.all([
     supabase.from("items_view").select("*").eq("id", id).maybeSingle(),
     supabase.from("item_photos").select("id, storage_path, jpeg_path, thumb_path").eq("item_id", id).order("sort_order").order("created_at"),
     supabase.from("item_events").select("id, action, date, note, old_value, new_value").eq("item_id", id).order("created_at", { ascending: false }).limit(50),
     supabase.from("sales_view").select("id, platform, sold_date, gross, adjusted_net, fulfillment_status").eq("item_id", id).order("sold_date"),
     getLookups(supabase),
     todayIso(),
+    supabase
+      .from("ai_runs")
+      .select("id, output, accepted, created_at")
+      .eq("item_id", id)
+      .eq("mode", "listing")
+      .is("error", null)
+      .order("created_at", { ascending: false })
+      .limit(1),
   ]);
   if (!item) notFound();
+  // Show the newest AI suggestion she hasn't accepted yet (e.g. from a batch run)
+  const latestRun = runs?.[0] && !runs[0].accepted ? { runId: runs[0].id, suggestion: runs[0].output as ListingSuggestion } : null;
+  const hasListing = !!(item.listing_description || item.item_specifics);
+  const canAssist = ["intake", "unlisted", "ready_to_list", "listed"].includes(item.status);
 
   const urls = await signPaths(supabase, (photos ?? []).flatMap((p) => [p.jpeg_path ?? p.storage_path, p.thumb_path]));
   const status = item.status as ItemStatus;
@@ -138,6 +155,25 @@ export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
           )}
         </div>
       </div>
+
+      {hasListing && (
+        <section className="mt-6">
+          <h2 className="mb-2 text-sm font-semibold text-muted">Reviewed listing (tap to copy into the eBay app)</h2>
+          <ListingCopy item={item} template={(lookups.settings.description_template as string | undefined) ?? null} />
+        </section>
+      )}
+
+      {canAssist && (
+        <div className="mt-6">
+          <ListingAssistant
+            itemId={item.id}
+            intakeTitle={item.intake_title ?? item.title}
+            latest={latestRun}
+            hasPhotos={(photos ?? []).length > 0}
+            geminiAvailable={!!process.env.GEMINI_API_KEY}
+          />
+        </div>
+      )}
 
       <details className="card mt-6 p-4">
         <summary className="cursor-pointer font-medium">Edit details</summary>

@@ -7,6 +7,8 @@ const nextConfig: NextConfig = {
   experimental: {
     // Detects lost signal and retries navigations and saves when it returns (garage sales, thrift stores)
     useOffline: true,
+    // Quick Check sends one resized photo through a server action
+    serverActions: { bodySizeLimit: "4mb" },
   },
   turbopack: {
     rules: {

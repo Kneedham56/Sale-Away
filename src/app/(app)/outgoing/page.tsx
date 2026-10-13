@@ -10,8 +10,12 @@ import { Empty, Thumb } from "@/components/item-row";
 import { SubmitButton } from "@/components/fields";
 import { setFulfillment } from "../sales/actions";
 import { PrintButton } from "@/components/print-button";
+import { ebayStatusAndAutoSync } from "@/lib/ebay/status";
 
 export const metadata: Metadata = { title: "Outgoing" };
+export const maxDuration = 300;
+
+type ShipTo = { name?: string; addressLine1?: string; addressLine2?: string; city?: string; stateOrProvince?: string; postalCode?: string };
 
 export default async function OutgoingPage({ searchParams }: PageProps<"/outgoing">) {
   await requireMember();
@@ -19,10 +23,11 @@ export default async function OutgoingPage({ searchParams }: PageProps<"/outgoin
   const byShipBy = sp.sort === "ship_by";
   const supabase = await createClient();
   const today = await todayIso();
+  const ebay = await ebayStatusAndAutoSync();
 
   let q = supabase
     .from("sales_view")
-    .select("id, title, platform, sold_date, ship_by, buyer_name, storage_location, fulfillment_status, item_id")
+    .select("id, title, platform, sold_date, ship_by, buyer_name, ship_to, shipping_service, order_id, storage_location, fulfillment_status, item_id")
     .in("fulfillment_status", ["to_ship", "packed"]);
   q = byShipBy
     ? q.order("ship_by", { ascending: true, nullsFirst: false }).order("sold_date")
@@ -40,7 +45,16 @@ export default async function OutgoingPage({ searchParams }: PageProps<"/outgoin
     <>
       <PageHeader
         title="Outgoing"
-        subtitle={byShipBy ? "Oldest ship-by first." : "Pick list: sorted by storage spot so you walk the garage once."}
+        subtitle={
+          <>
+            {byShipBy ? "Oldest ship-by first." : "Pick list: sorted by storage spot so you walk the garage once."}
+            {ebay.connected && ebay.lastRunAt && (
+              <span className="block text-xs">
+                eBay orders synced {new Date(ebay.lastRunAt).toLocaleTimeString("en-US", { timeZone: "America/Los_Angeles", timeStyle: "short" })}
+              </span>
+            )}
+          </>
+        }
         actions={<PrintButton />}
       />
       <div className="mb-3 flex gap-2 print:hidden">
@@ -68,6 +82,12 @@ export default async function OutgoingPage({ searchParams }: PageProps<"/outgoin
                     )}
                     {o.buyer_name && ` · ${o.buyer_name}`}
                   </div>
+                  {o.ship_to && (
+                    <div className="mt-1 text-xs">
+                      {[(o.ship_to as ShipTo).city, (o.ship_to as ShipTo).stateOrProvince, (o.ship_to as ShipTo).postalCode].filter(Boolean).join(", ")}
+                      {o.shipping_service && ` · ${o.shipping_service.replace(/([a-z])([A-Z])/g, "$1 $2")}`}
+                    </div>
+                  )}
                   <div className="mt-2 flex gap-2 print:hidden">
                     {o.fulfillment_status === "to_ship" ? (
                       <form action={setFulfillment}>
@@ -77,6 +97,16 @@ export default async function OutgoingPage({ searchParams }: PageProps<"/outgoin
                       </form>
                     ) : (
                       <span className="chip chip-active">{FULFILLMENT_LABELS.packed}</span>
+                    )}
+                    {o.platform === "ebay" && o.order_id && !o.order_id.startsWith("MOCK") && (
+                      <a
+                        href={`https://www.ebay.com/sh/ord/details?orderid=${encodeURIComponent(o.order_id)}`}
+                        target="_blank"
+                        rel="noreferrer"
+                        className="btn-small"
+                      >
+                        Buy label ↗
+                      </a>
                     )}
                     <form action={setFulfillment}>
                       <input type="hidden" name="id" value={o.id} />

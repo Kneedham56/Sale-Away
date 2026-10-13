@@ -12,6 +12,8 @@ const TABS = [
 ];
 
 const DESKTOP_EXTRA = [
+  { href: "/ready", label: "Ready" },
+  { href: "/quick", label: "Quick Check" },
   { href: "/outgoing", label: "Outgoing" },
   { href: "/sold", label: "Sold" },
   { href: "/trips", label: "Trips" },

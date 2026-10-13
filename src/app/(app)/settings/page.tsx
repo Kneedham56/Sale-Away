@@ -1,9 +1,11 @@
 import type { Metadata } from "next";
+import Link from "next/link";
 import { requireMember } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { getLookups, settingNumber } from "@/lib/data/lookups";
 import { PageHeader } from "@/components/page-header";
-import { LookupTools, RatesForm } from "./settings-forms";
+import { AiSettingsForm, LookupTools, RatesForm } from "./settings-forms";
+import { DEFAULT_LISTING_PROMPT, DEFAULT_QUICK_PROMPT, DEFAULT_STORE_RULES } from "@/lib/ai/prompts";
 
 export const metadata: Metadata = { title: "Settings" };
 
@@ -17,7 +19,7 @@ export default async function SettingsPage() {
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
-      <PageHeader title="Settings" />
+      <PageHeader title="Settings" actions={<Link href="/settings/ebay" className="btn-small">eBay ›</Link>} />
 
       <section className="card p-4">
         <h2 className="mb-3 font-semibold">Fees and rates</h2>
@@ -44,6 +46,29 @@ export default async function SettingsPage() {
       </section>
 
       <section className="card p-4">
+        <h2 className="mb-1 font-semibold">AI listing assistant</h2>
+        <p className="mb-3 text-sm text-muted">
+          {process.env.GEMINI_API_KEY ? "Gemini key is set on the server." : "No Gemini key on the server: Copy prompt mode only."} Every
+          run is logged with its token use.
+        </p>
+        <AiSettingsForm
+          values={Object.fromEntries(
+            ["ai_listing_prompt", "ai_quick_prompt", "store_rules", "description_template", "ai_listing_model", "ai_quick_model"].map((k) => [
+              k,
+              typeof lookups.settings[k] === "string" ? (lookups.settings[k] as string) : "",
+            ])
+          )}
+          defaults={{
+            ai_listing_prompt: DEFAULT_LISTING_PROMPT,
+            ai_quick_prompt: DEFAULT_QUICK_PROMPT,
+            store_rules: DEFAULT_STORE_RULES,
+            ai_listing_model: "gemini-flash-latest",
+            ai_quick_model: "gemini-flash-lite-latest",
+          }}
+        />
+      </section>
+
+      <section className="card p-4">
         <h2 className="mb-2 font-semibold">People</h2>
         <ul className="space-y-1 text-sm">
           {(members ?? []).map((m) => (
@@ -53,11 +78,6 @@ export default async function SettingsPage() {
             </li>
           ))}
         </ul>
-      </section>
-
-      <section className="card p-4 text-sm text-muted">
-        <h2 className="mb-1 font-semibold text-fg">Coming later</h2>
-        Connect eBay (Phase 3), description template and AI prompts (Phase 2), business policies (Phase 4).
       </section>
     </div>
   );
