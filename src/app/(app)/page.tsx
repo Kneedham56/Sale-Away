@@ -29,7 +29,12 @@ export default async function HomePage() {
     supabase.from("items_view").select("id", head).eq("status", "listed").gte("days_active", staleDays),
     supabase.from("sales_view").select("id", head).in("fulfillment_status", ["to_ship", "packed"]),
     supabase.from("sales_view").select("id", head).in("fulfillment_status", ["to_ship", "packed"]).lt("ship_by", today),
-    supabase.from("items").select("id", head).in("status", STAGE_STATUSES.completed).gte("updated_at", monthStart),
+    // Finished this month: shipped (by sale date) or taken down (by exit date)
+    supabase
+      .from("items")
+      .select("id", head)
+      .in("status", STAGE_STATUSES.completed)
+      .or(`date_sold.gte.${monthStart},date_exited.gte.${monthStart}`),
     supabase.from("sales_view").select("id", head).is("item_id", null),
     supabase.from("monthly_summary").select("sales_count, gross, adjusted_net").eq("month", monthStart).maybeSingle(),
   ]);

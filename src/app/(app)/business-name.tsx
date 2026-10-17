@@ -6,7 +6,7 @@ export async function BusinessName() {
   const me = await currentMember();
   if (!me || me.workspaces.length < 2) return null;
   return (
-    <Link href="/businesses" className="max-w-40 truncate rounded-full bg-accent/10 px-3 py-1 text-xs font-medium text-accent">
+    <Link href="/businesses" className="max-w-44 truncate rounded-full bg-accent/10 px-3 py-1 text-xs font-medium whitespace-nowrap text-accent">
       {me.workspace.name} ▾
     </Link>
   );

@@ -12,17 +12,14 @@ const TABS = [
   { href: "/outgoing", label: "Outgoing", icon: TruckIcon },
 ];
 
-// Computer: the whole workflow in order, then hindsight and settings
+// Computer: the workflow in order (logo = Home; Add, business and menu sit on the right of the header)
 const DESKTOP_LINKS = [
-  { href: "/", label: "Home" },
   { href: "/trips", label: "Trips" },
   { href: "/unlisted", label: "Inventory" },
-  { href: "/add", label: "+ Add item" },
   { href: "/listed", label: "Listed" },
   { href: "/outgoing", label: "Outgoing" },
   { href: "/completed", label: "Completed" },
   { href: "/insights", label: "Insights" },
-  { href: "/more", label: "More" },
 ];
 
 function isActive(path: string, href: string) {
@@ -36,7 +33,7 @@ export function BottomNav() {
 /** Path-independent render, also used as the Suspense fallback while the URL streams in. */
 export function BottomNavView({ path }: { path: string }) {
   return (
-    <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur md:hidden print:hidden">
+    <nav className="fixed inset-x-0 bottom-0 z-30 border-t border-border bg-surface/95 pb-[env(safe-area-inset-bottom)] backdrop-blur lg:hidden print:hidden">
       <ul className="mx-auto flex max-w-lg items-end justify-around">
         {TABS.map(({ href, label, icon: Icon, primary }) => {
           const active = isActive(path, href);
@@ -70,13 +67,13 @@ export function TopNav() {
 export function TopNavView({ path }: { path: string }) {
   const links = DESKTOP_LINKS;
   return (
-    <nav className="hidden md:block print:hidden">
-      <ul className="flex flex-wrap gap-1">
+    <nav className="hidden min-w-0 flex-1 lg:block print:hidden">
+      <ul className="flex items-center gap-0.5 whitespace-nowrap">
         {links.map(({ href, label }) => (
           <li key={href}>
             <Link
               href={href}
-              className={`rounded-lg px-3 py-1.5 text-sm font-medium ${isActive(path, href) ? "bg-accent/10 text-accent" : "text-muted hover:text-fg"}`}
+              className={`rounded-lg px-2.5 py-1.5 text-sm font-medium ${isActive(path, href) ? "bg-accent/10 text-accent" : "text-muted hover:text-fg"}`}
             >
               {label}
             </Link>
