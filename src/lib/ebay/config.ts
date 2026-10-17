@@ -9,13 +9,15 @@ export const SCOPES = {
   fulfillment: "https://api.ebay.com/oauth/api_scope/sell.fulfillment",
   finances: "https://api.ebay.com/oauth/api_scope/sell.finances",
   accountRead: "https://api.ebay.com/oauth/api_scope/sell.account.readonly",
+  account: "https://api.ebay.com/oauth/api_scope/sell.account",
   inventory: "https://api.ebay.com/oauth/api_scope/sell.inventory",
 } as const;
 
 /** Read scopes for Phase 3; listing scopes are added only when writing is turned on (Phase 4). */
 export function userScopes(write: boolean): string[] {
   const read = [SCOPES.identity, SCOPES.fulfillmentRead, SCOPES.finances, SCOPES.accountRead];
-  return write ? [...read, SCOPES.inventory] : read;
+  // Writing also needs account management (inventory location, business policies on a fresh test seller)
+  return write ? [...read, SCOPES.inventory, SCOPES.account] : read;
 }
 
 export function ebayEnv(): EbayEnv {
