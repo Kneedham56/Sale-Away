@@ -1,7 +1,11 @@
 # Sale Away With Me
 
 Phone-first reseller app for mommatom (eBay + Mercari/Poshmark/Depop/Vinted/Etsy). Replaces her Excel tracker.
-The full plan is `docs/PLAN.md`. Build one phase at a time and stop at each gate for Doc's review.
+The full plan is `docs/PLAN.md` (all phases are built). Doc tests in "Doc's Test Shop" (eBay sandbox); her business uses real eBay.
+
+**Her workflow** (Home shows it as 5 steps): Trips -> Inventory (To list / Drafted = `ready_to_list`) -> Listed -> Outgoing
+(item `sold`, sale `to_ship`/`packed`) -> Completed (`shipped`, or taken down: `donated`/`damaged`/`kept`/`discarded`).
+Insights = sales by month, trips, reports, expenses, taxes. `STAGE_STATUSES` in `src/lib/format.ts` maps stages to statuses.
 
 @AGENTS.md
 
@@ -27,8 +31,9 @@ The full plan is `docs/PLAN.md`. Build one phase at a time and stop at each gate
 
 ## Layout
 
-- `src/app/(app)/`: signed-in screens (Home, add, unlisted, listed, items/[id], items/[id]/sell, sold, sales/[id], outgoing,
-  trips, expenses, taxes (+ CSV export route), reports, settings, more). Server actions live in `actions.ts` beside each feature.
+- `src/app/(app)/`: signed-in screens (Home pipeline, add, unlisted = Inventory, listed, items/[id] (+ /sell), outgoing,
+  completed, insights, sold, sales/[id], trips, expenses, taxes (+ CSV export), reports, settings (+ /ebay), businesses,
+  more = menu). `/ready` redirects to Inventory > Drafted. Server actions live in `actions.ts` beside each feature.
 - `src/lib/data/`: server data helpers (lookups, lot-code generator `createSource`, tax summary).
 - `src/lib/photo-upload.ts`: phone-side JPEG + thumbnail and retrying uploads to `item-photos/<itemId>/`.
 - Report views and `tax_summary()` are in `supabase/migrations/20261013000001_phase1_reports.sql`.
@@ -61,8 +66,13 @@ The full plan is `docs/PLAN.md`. Build one phase at a time and stop at each gate
 - Unknown values are `null`, never 0 (cost, category, etc.). Money is `numeric(10,2)`.
 - Net profit, days active and monthly totals are computed in views (`sales_view`, `items_view`, `monthly_summary`).
 - Schema changes: add a new timestamped file in `supabase/migrations/`; never edit an applied one.
-- All eBay calls go through `getEbayClient()` (`EBAY_ENV` = mock | sandbox | production). Mock never writes her data
+- Each business picks its eBay with settings `ebay_environment` (mock | sandbox | production, default `EBAY_ENV`) and
+  `ebay_publishing`; read it with `ebayModeFor(workspaceId)` (`src/lib/ebay/mode.ts`). Real-eBay publishing needs the
+  business switch AND `EBAY_WRITE_ENABLED=true`. Sandbox and production keys are separate (`*_SANDBOX` env vars), never mixed.
+- All eBay calls go through `getEbayClient(env, workspaceId)`. Mock never writes her data
   (sync and publish are previews); sandbox sales are stored with `environment = 'sandbox'` and excluded by `sales_view`,
-  so always read sales through `sales_view` (or filter `environment`). Publishing needs `EBAY_WRITE_ENABLED=true`.
+  so always read sales through `sales_view` (or filter `environment`). Taking a listed item down or selling it elsewhere
+  calls `endListing()` (withdraws app-published offers; Seller Hub listings get a reminder). Conditions come from the
+  category's allowed list (Metadata API) via `conditionFor()`. `npm run ebay:sandbox-setup` prepares a fresh test seller.
 - Every eBay write is logged to `activity_log`. Buyer names/addresses are scrubbed 30 days after shipping.
 - AI goes through `suggestListing()`; it only fills fields. She accepts (item -> Ready to List); the AI never publishes.

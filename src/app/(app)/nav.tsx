@@ -105,6 +105,3 @@ function TagIcon(p: IconProps) {
 function TruckIcon(p: IconProps) {
   return <svg viewBox="0 0 24 24" className={p.className} {...stroke}><path d="M3 6h11v10H3z" /><path d="M14 9h4l3 3v4h-7" /><circle cx="7" cy="17" r="2" /><circle cx="17" cy="17" r="2" /></svg>;
 }
-export function MenuIcon(p: IconProps) {
-  return <svg viewBox="0 0 24 24" className={p.className} {...stroke}><path d="M4 6h16M4 12h16M4 18h16" /></svg>;
-}

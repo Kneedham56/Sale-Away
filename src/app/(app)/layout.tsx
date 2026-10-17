@@ -1,6 +1,6 @@
 import Link from "next/link";
 import { Suspense } from "react";
-import { BottomNav, BottomNavView, MenuIcon, TopNav, TopNavView } from "./nav";
+import { BottomNav, BottomNavView, TopNav, TopNavView } from "./nav";
 import { OfflineBanner } from "./offline-banner";
 import { BusinessName } from "./business-name";
 import { SignOutButton } from "./more/sign-out-button";
@@ -26,7 +26,9 @@ export default function AppLayout({ children }: LayoutProps<"/">) {
             <SignOutButton className="rounded-lg px-3 py-1.5 text-sm text-muted hover:text-fg" />
           </div>
           <Link href="/more" aria-label="Menu" className="ml-auto rounded-lg p-2 text-muted active:bg-border/40 md:hidden">
-            <MenuIcon className="h-6 w-6" />
+            <svg viewBox="0 0 24 24" className="h-6 w-6" fill="none" stroke="currentColor" strokeWidth={2} strokeLinecap="round">
+              <path d="M4 6h16M4 12h16M4 18h16" />
+            </svg>
           </Link>
         </header>
         <main className="px-4 pb-[calc(env(safe-area-inset-bottom)+6rem)] md:px-6 md:pb-10">{children}</main>
