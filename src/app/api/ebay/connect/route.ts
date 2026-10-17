@@ -1,7 +1,7 @@
 import { randomBytes } from "node:crypto";
 import { NextResponse, type NextRequest } from "next/server";
 import { currentMember } from "@/lib/auth";
-import { hasCredentials, userScopes } from "@/lib/ebay/config";
+import { canConnect, userScopes } from "@/lib/ebay/config";
 import { ebayModeFor } from "@/lib/ebay/mode";
 import { consentUrl } from "@/lib/ebay/tokens";
 
@@ -13,7 +13,7 @@ export async function GET(request: NextRequest) {
   const mode = await ebayModeFor(member.workspace.id);
   if (mode.env === "mock") return NextResponse.redirect(new URL("/settings/ebay?ebay=mock", request.url));
   const env = mode.env;
-  if (!hasCredentials(env)) return NextResponse.redirect(new URL(`/settings/ebay?ebay=missing-keys&env=${env}`, request.url));
+  if (!canConnect(env)) return NextResponse.redirect(new URL(`/settings/ebay?ebay=missing-keys&env=${env}`, request.url));
 
   const state = randomBytes(24).toString("base64url");
   // Listing permission only when this business may publish (always on in sandbox, where nothing is real)

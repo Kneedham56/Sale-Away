@@ -35,19 +35,21 @@ export function hosts(env: Exclude<EbayEnv, "mock">) {
 }
 
 export function credentials(env: Exclude<EbayEnv, "mock">) {
-  // Separate keysets per environment; production falls back to the plain names
+  // Separate keysets per environment, never mixed: production keys are unknown to the sandbox and vice versa
   const suffix = env === "sandbox" ? "_SANDBOX" : "";
-  const clientId = process.env[`EBAY_CLIENT_ID${suffix}`] ?? (env === "production" ? undefined : process.env.EBAY_CLIENT_ID);
-  const clientSecret =
-    process.env[`EBAY_CLIENT_SECRET${suffix}`] ?? (env === "production" ? undefined : process.env.EBAY_CLIENT_SECRET);
-  const ruName = process.env[`EBAY_RU_NAME${suffix}`] ?? (env === "production" ? undefined : process.env.EBAY_RU_NAME);
-  return { clientId, clientSecret, ruName };
+  const get = (name: string) => process.env[`${name}${suffix}`]?.trim() || undefined;
+  return { clientId: get("EBAY_CLIENT_ID"), clientSecret: get("EBAY_CLIENT_SECRET"), ruName: get("EBAY_RU_NAME") };
 }
 
 export function hasCredentials(env: EbayEnv): boolean {
   if (env === "mock") return true;
   const c = credentials(env);
   return !!(c.clientId && c.clientSecret);
+}
+
+/** Keys plus the sign-in link name: everything "Connect eBay" needs. */
+export function canConnect(env: EbayEnv): boolean {
+  return env !== "mock" && hasCredentials(env) && !!credentials(env).ruName;
 }
 
 /** Whether listing-creation (Phase 4) is switched on. Off until she has run read-only for a while. */

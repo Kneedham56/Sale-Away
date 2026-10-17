@@ -3,7 +3,7 @@ import Link from "next/link";
 import { requireMember } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { hasCredentials, type EbayEnv } from "@/lib/ebay/config";
+import { canConnect, type EbayEnv } from "@/lib/ebay/config";
 import { ebayModeFor } from "@/lib/ebay/mode";
 import { getEbayClient } from "@/lib/ebay/client";
 import type { Policies } from "@/lib/ebay/types";
@@ -21,7 +21,7 @@ const MESSAGES: Record<string, string> = {
   declined: "eBay sign-in was cancelled.",
   expired: "That took too long. Try connecting again.",
   "bad-state": "Something didn't match on the way back from eBay. Try again.",
-  "missing-keys": "eBay developer keys aren't set on the server yet.",
+  "missing-keys": "This business's eBay keys or sign-in link (RuName) aren't set on the server yet.",
   mock: "This business uses sample data. Switch its eBay mode first.",
   failed: "Connecting failed",
 };
@@ -125,7 +125,7 @@ export default async function EbaySettingsPage({ searchParams }: PageProps<"/set
             </div>
             <p className="text-xs text-muted">She can also revoke access any time in her eBay account settings.</p>
           </div>
-        ) : hasCredentials(env) ? (
+        ) : canConnect(env) ? (
           <div className="space-y-2 text-sm">
             <p>She signs in on eBay&apos;s own page and approves. The app never sees her eBay password.</p>
             <a href={`/api/ebay/connect?env=${env}`} className="btn-primary w-full">
@@ -133,7 +133,10 @@ export default async function EbaySettingsPage({ searchParams }: PageProps<"/set
             </a>
           </div>
         ) : (
-          <p className="text-sm text-coral">eBay {env} keys are not set on the server yet.</p>
+          <p className="text-sm text-coral">
+            eBay {env === "sandbox" ? "sandbox (test site)" : env} keys or sign-in link (RuName) aren&apos;t set on the server yet, so
+            Connect is unavailable.
+          </p>
         )}
       </section>
 
