@@ -39,6 +39,9 @@ export function SyncButton({ env }: { env: string }) {
             {result.orders} orders · {result.lines} lines · {result.matched} matched · {result.unmatched.length} unmatched
             {!result.dryRun && ` · ${result.inserted} new · ${result.updated} updated · ${result.feesUpdated} fee updates`}
           </p>
+          {result.financesError && (
+            <p className="mt-1 text-xs text-coral">Orders synced, but eBay&apos;s fee service didn&apos;t answer ({result.financesError}). Fees stay estimated until the next sync.</p>
+          )}
           {result.preview && (
             <ul className="mt-2 space-y-1">
               {result.preview.map((p, i) => (

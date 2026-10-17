@@ -13,11 +13,14 @@ export function StatusActions({
   actions,
   storageLocations,
   today,
+  listedViaEbay = false,
 }: {
   item: { id: string; status: ItemStatus; list_price: number | null; storage_location: string | null };
   actions: string[];
   storageLocations: string[];
   today: string;
+  /** When eBay publishing is available, manual "Mark listed" becomes a secondary option */
+  listedViaEbay?: boolean;
 }) {
   const [opened, setOpened] = useState<{ panel: Panel; at: unknown[] }>({ panel: null, at: [] });
   const [exitTo, setExitTo] = useState<ItemStatus>("donated");
@@ -46,8 +49,8 @@ export function StatusActions({
           </Link>
         )}
         {isActive && (
-          <button className="btn-secondary min-h-11 px-4" onClick={() => toggle("list")}>
-            Mark listed
+          <button className={listedViaEbay ? "btn-small min-h-11" : "btn-secondary min-h-11 px-4"} onClick={() => toggle("list")}>
+            {listedViaEbay ? "Already listed? Mark listed" : "Mark listed"}
           </button>
         )}
         {isListed && (

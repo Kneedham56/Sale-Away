@@ -36,17 +36,35 @@ type PublishItem = {
 };
 
 /** eBay condition enum from her condition + grade. Some categories (books, media) accept fewer values. */
-export function conditionFor(item: PublishItem): string {
-  if (item.condition === "new") return "NEW";
+// eBay condition ids and the Inventory API names for them
+const CONDITION_ENUM: Record<number, string> = {
+  1000: "NEW", 1500: "NEW_OTHER", 1750: "NEW_WITH_DEFECTS", 2750: "LIKE_NEW", 2990: "PRE_OWNED_EXCELLENT",
+  3000: "USED_EXCELLENT", 3010: "PRE_OWNED_FAIR", 4000: "USED_VERY_GOOD", 5000: "USED_GOOD", 6000: "USED_ACCEPTABLE",
+  7000: "FOR_PARTS_OR_NOT_WORKING",
+};
+
+/** Her condition + grade, best match first. 3000 is eBay's plain "Used" in many categories. */
+function conditionPreferences(item: Pick<PublishItem, "condition" | "condition_grade">): number[] {
+  if (item.condition === "new") return [1000, 1500, 2750];
   switch (item.condition_grade) {
     case "excellent":
-      return item.kind === "general" ? "USED_EXCELLENT" : "LIKE_NEW";
+      return [2990, 2750, 4000, 3000, 5000];
     case "acceptable":
-      return "USED_ACCEPTABLE";
+      return [6000, 3010, 5000, 3000];
     case "good":
     default:
-      return "USED_GOOD";
+      return [5000, 4000, 3000, 2990, 6000];
   }
+}
+
+/**
+ * The eBay condition for this item that the category actually accepts (eBay rejects others at publish time).
+ * `allowed` comes from eBay's Metadata API; if it's empty we fall back to the first preference.
+ */
+export function conditionFor(item: Pick<PublishItem, "condition" | "condition_grade">, allowed: number[] = []): string {
+  const prefs = conditionPreferences(item);
+  const pick = allowed.length ? prefs.find((id) => allowed.includes(id)) ?? (item.condition === "new" ? allowed[0] : allowed.find((id) => id >= 2750 && id < 7000) ?? allowed[0]) : prefs[0];
+  return CONDITION_ENUM[pick] ?? "USED_EXCELLENT";
 }
 
 export type PublishCheck = { ok: boolean; problems: string[] };
@@ -135,7 +153,7 @@ export async function publishItem(
     title: item.title,
     description,
     aspects,
-    condition: conditionFor(item),
+    condition: conditionFor(item, await client.getConditionIds(categoryId).catch(() => [])),
     conditionDescription: item.condition === "new" ? undefined : item.condition_text ?? item.condition_notes ?? undefined,
     imageUrls: [] as string[],
     weightOz: item.weight_oz ? Number(item.weight_oz) : null,
@@ -170,8 +188,12 @@ export async function publishItem(
     const { data: signed } = await supabase.storage.from(PHOTO_BUCKET).createSignedUrls(paths, 3600);
     for (const s of signed ?? []) {
       if (!s.signedUrl) continue;
-      const img = await client.uploadImageFromUrl(s.signedUrl);
-      inventoryItem.imageUrls.push(img.imageUrl);
+      try {
+        const img = await client.uploadImageFromUrl(s.signedUrl);
+        inventoryItem.imageUrls.push(img.imageUrl);
+      } catch {
+        inventoryItem.imageUrls.push(s.signedUrl);
+      }
     }
     if (!inventoryItem.imageUrls.length) throw new Error("No photos could be uploaded to eBay.");
 
@@ -189,12 +211,15 @@ export async function publishItem(
       { item_id: itemId, environment: env, sku, offer_id: offerId, listing_id: listingId, status: "published", last_error: null, published_at: new Date().toISOString() },
       { onConflict: "workspace_id,environment,sku" }
     );
-    if (env === "production") {
+    // The business chose this eBay, so its item moves to Listed either way (sandbox businesses hold test items)
+    {
       await supabase
         .from("items")
         .update({ status: "listed", date_listed: today, sku, ebay_item_id: listingId, ebay_offer_id: offerId })
         .eq("id", itemId);
-      await supabase.from("item_events").insert({ item_id: itemId, action: "Published to eBay", note: `Listing ${listingId}` });
+      await supabase
+        .from("item_events")
+        .insert({ item_id: itemId, action: "Published to eBay", note: `${env === "sandbox" ? "Test eBay listing" : "Listing"} ${listingId}` });
     }
     const url = env === "production" ? `https://www.ebay.com/itm/${listingId}` : `https://www.sandbox.ebay.com/itm/${listingId}`;
     return { environment: env, dryRun: false, sku, offerId, listingId, url };

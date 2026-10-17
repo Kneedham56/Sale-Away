@@ -17,6 +17,10 @@ import { ConfirmButton } from "@/components/fields";
 import { ListingCopy } from "@/components/listing-copy";
 import { ListingAssistant } from "./listing-assistant";
 import type { ListingSuggestion } from "@/lib/ai/types";
+import { ListOnEbay } from "./list-on-ebay";
+import { ebayModeFor } from "@/lib/ebay/mode";
+import { checkReady, type PolicyDefaults } from "@/lib/ebay/publish";
+import { createAdminClient } from "@/lib/supabase/admin";
 
 export const metadata: Metadata = { title: "Item" };
 // Generate Listing can take up to a minute on the full model
@@ -51,6 +55,22 @@ export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
   const latestRun = runs?.[0] && !runs[0].accepted ? { runId: runs[0].id, suggestion: runs[0].output as ListingSuggestion } : null;
   const hasListing = !!(item.listing_description || item.item_specifics);
   const canAssist = ["intake", "unlisted", "ready_to_list", "listed"].includes(item.status);
+
+  // eBay publishing: is this business allowed and connected, and what does this item still need?
+  const mode = await ebayModeFor(me.workspace.id);
+  const { data: conn } =
+    mode.env === "mock"
+      ? { data: { environment: "mock" } }
+      : await createAdminClient().from("ebay_connection").select("environment").eq("workspace_id", me.workspace.id).eq("environment", mode.env).maybeSingle();
+  const canList = mode.canPublish && !!conn && ["intake", "unlisted", "ready_to_list"].includes(item.status);
+  const listProblems = canList
+    ? [
+        ...checkReady(item, (photos ?? []).length, (lookups.settings.ebay_policies ?? {}) as PolicyDefaults).problems.filter(
+          (p) => p !== "No list price."
+        ),
+        ...(typeof lookups.settings.ebay_postal_code === "string" && lookups.settings.ebay_postal_code ? [] : ["Ship-from ZIP not set (Settings → eBay)."]),
+      ]
+    : [];
 
   const urls = await signPaths(supabase, (photos ?? []).flatMap((p) => [p.jpeg_path ?? p.storage_path, p.thumb_path]));
   const status = item.status as ItemStatus;
@@ -128,7 +148,10 @@ export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
             </div>
           )}
 
+          {canList && <ListOnEbay itemId={item.id} listPrice={item.list_price} env={mode.env} problems={listProblems} />}
+
           <StatusActions
+            listedViaEbay={canList}
             item={{ id: item.id, status, list_price: item.list_price, storage_location: item.storage_location }}
             actions={actions}
             storageLocations={lookups.storageLocations}
@@ -172,6 +195,7 @@ export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
             latest={latestRun}
             hasPhotos={(photos ?? []).length > 0}
             geminiAvailable={!!process.env.GEMINI_API_KEY}
+            listOnEbay={canList ? { env: mode.env } : null}
           />
         </div>
       )}

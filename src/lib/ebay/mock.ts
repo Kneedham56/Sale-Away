@@ -116,6 +116,9 @@ export class MockEbayClient implements EbayClient {
   async suggestCategories(query: string): Promise<CategorySuggestion[]> {
     return [{ categoryId: "0", categoryName: query.slice(0, 40), path: `Mock > ${query.slice(0, 40)}` }];
   }
+  async getConditionIds(): Promise<number[]> {
+    return [1000, 3000, 7000];
+  }
   async getAspects(): Promise<Aspect[]> {
     return [
       { name: "Brand", required: true, values: [] },

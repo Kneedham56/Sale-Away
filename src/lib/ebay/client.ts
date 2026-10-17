@@ -20,6 +20,8 @@ export interface EbayClient {
   searchActive(query: string, limit?: number): Promise<BrowseItem[]>;
   suggestCategories(query: string): Promise<CategorySuggestion[]>;
   getAspects(categoryId: string): Promise<Aspect[]>;
+  /** eBay condition ids the category accepts (e.g. 1000 New, 3000 Used); empty if eBay doesn't say */
+  getConditionIds(categoryId: string): Promise<number[]>;
   // Seller calls (need her connected account)
   getUser(): Promise<{ userId: string; username: string }>;
   getOrders(modifiedSince: string): Promise<EbayOrder[]>;
@@ -145,6 +147,13 @@ class RestEbayClient implements EbayClient {
       required: !!a.aspectConstraint?.aspectRequired,
       values: (a.aspectValues ?? []).slice(0, 50).map((v) => v.localizedValue),
     }));
+  }
+
+  async getConditionIds(categoryId: string): Promise<number[]> {
+    const { data } = await this.call<{ itemConditionPolicies?: { itemConditions?: { conditionId: string }[] }[] }>(
+      `/sell/metadata/v1/marketplace/${MARKETPLACE}/get_item_condition_policies?filter=${encodeURIComponent(`categoryIds:{${categoryId}}`)}`
+    );
+    return (data.itemConditionPolicies?.[0]?.itemConditions ?? []).map((c) => Number(c.conditionId)).filter(Number.isFinite);
   }
 
   async getUser() {

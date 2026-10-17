@@ -16,7 +16,8 @@
     "ai-eval": "tsx scripts/ai-eval.ts",
     "test": "tsx --conditions=react-server --test tests/*.test.ts",
     "db:snapshot": "tsx scripts/db-snapshot.ts snapshot",
-    "db:restore": "tsx scripts/db-snapshot.ts restore"
+    "db:restore": "tsx scripts/db-snapshot.ts restore",
+    "ebay:sandbox-setup": "tsx --conditions=react-server scripts/ebay-sandbox-setup.ts"
   },
   "dependencies": {
     "@supabase/ssr": "^0.12.7",

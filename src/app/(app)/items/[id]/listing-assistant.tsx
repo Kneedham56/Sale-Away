@@ -2,6 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { acceptListing, buildCopyPrompt, generateListing, readPastedAnswer } from "../ai-actions";
+import { publishToEbay } from "../../settings/ebay/actions";
 import { CopyButton } from "@/components/copy-button";
 import { Field, MoneyInput } from "@/components/fields";
 import { ebaySoldSearchUrl } from "@/lib/ai/prompts";
@@ -18,12 +19,15 @@ export function ListingAssistant({
   latest,
   hasPhotos,
   geminiAvailable,
+  listOnEbay = null,
 }: {
   itemId: string;
   intakeTitle: string;
   latest: { runId: string; suggestion: ListingSuggestion } | null;
   hasPhotos: boolean;
   geminiAvailable: boolean;
+  /** Set when this business can publish: offers "Save & list on eBay" */
+  listOnEbay?: { env: string } | null;
 }) {
   const [mode, setMode] = useState<"gemini" | "copy">(geminiAvailable ? "gemini" : "copy");
   const [extra, setExtra] = useState("");
@@ -31,7 +35,7 @@ export function ListingAssistant({
   const [copyPrompt, setCopyPrompt] = useState<string | null>(null);
   const [pasted, setPasted] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [accepted, setAccepted] = useState(false);
+  const [accepted, setAccepted] = useState<null | "saved" | { url: string | null; preview: boolean }>(null);
   const [pending, start] = useTransition();
 
   function run(fn: () => Promise<void>) {
@@ -50,7 +54,7 @@ export function ListingAssistant({
       const res = await generateListing(itemId, extra.trim() || null);
       if (!res.ok) return setError(res.error);
       setDraft({ ...res.data!.suggestion, runId: res.data!.runId });
-      setAccepted(false);
+      setAccepted(null);
     });
 
   const makePrompt = () =>
@@ -66,10 +70,10 @@ export function ListingAssistant({
       if (!res.ok) return setError(res.error);
       setDraft({ ...res.data!.suggestion, runId: res.data!.runId });
       setPasted("");
-      setAccepted(false);
+      setAccepted(null);
     });
 
-  const accept = () =>
+  const accept = (alsoList: boolean) =>
     run(async () => {
       if (!draft) return;
       const res = await acceptListing(itemId, draft.runId, {
@@ -85,7 +89,14 @@ export function ListingAssistant({
         ebay_category_id: draft.ebay_category_id ?? null,
       });
       if (!res.ok) return setError(res.error);
-      setAccepted(true);
+      if (!alsoList) return setAccepted("saved");
+      const pub = await publishToEbay(itemId, draft.price);
+      // Saved either way; if eBay refused, say why and leave it in Ready to List
+      if (!pub.ok) {
+        setAccepted("saved");
+        return setError(`Saved to Ready to List, but not listed yet: ${pub.error}`);
+      }
+      setAccepted({ url: pub.data!.url, preview: pub.data!.dryRun });
     });
 
   const set = (patch: Partial<Draft>) => setDraft((d) => (d ? { ...d, ...patch } : d));
@@ -249,12 +260,33 @@ export function ListingAssistant({
             <textarea className="input min-h-16" value={draft.condition_text} onChange={(e) => set({ condition_text: e.target.value })} />
           </Field>
 
-          {accepted ? (
+          {accepted === "saved" ? (
             <p className="rounded-xl bg-ok/15 px-4 py-3 text-sm font-medium text-ok">Saved. It&apos;s in Ready to List with copy buttons.</p>
+          ) : accepted ? (
+            <p className="rounded-xl bg-ok/15 px-4 py-3 text-sm font-medium text-ok">
+              {accepted.preview ? "Preview OK (sample data, nothing sent). " : `Live on ${listOnEbay?.env === "sandbox" ? "test " : ""}eBay. `}
+              {accepted.url && (
+                <a href={accepted.url} target="_blank" rel="noreferrer" className="underline">
+                  View listing ↗
+                </a>
+              )}
+            </p>
           ) : (
-            <button type="button" className="btn-primary w-full" onClick={accept} disabled={pending || draft.title.length > TITLE_MAX}>
-              {pending ? "Saving…" : "Accept → Ready to list"}
-            </button>
+            <div className={`grid gap-2 ${listOnEbay ? "grid-cols-2" : ""}`}>
+              <button
+                type="button"
+                className={listOnEbay ? "btn-secondary" : "btn-primary w-full"}
+                onClick={() => accept(false)}
+                disabled={pending || draft.title.length > TITLE_MAX}
+              >
+                {pending ? "Saving…" : listOnEbay ? "Save for later" : "Accept → Ready to list"}
+              </button>
+              {listOnEbay && (
+                <button type="button" className="btn-primary bg-coral" onClick={() => accept(true)} disabled={pending || draft.title.length > TITLE_MAX}>
+                  {pending ? "Listing…" : listOnEbay.env === "sandbox" ? "Save & list (test eBay)" : "Save & list on eBay"}
+                </button>
+              )}
+            </div>
           )}
           <p className="text-center text-xs text-muted">The AI never publishes. You approve every listing.</p>
         </div>

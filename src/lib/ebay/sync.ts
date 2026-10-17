@@ -21,6 +21,8 @@ export type SyncResult = {
   transactions: number;
   feesUpdated: number;
   scrubbed: number;
+  /** Set when actual fees couldn't be fetched this time (estimates stay until the next sync) */
+  financesError?: string;
   preview?: { orderId: string; title: string; gross: number; matchedItem: string | null; status: string }[];
 };
 
@@ -318,9 +320,14 @@ export async function runEbaySync(env: EbayEnv, ws: string): Promise<SyncResult>
   try {
     const result = await syncOrders(env, ws);
     if (env !== "mock") {
-      const fin = await syncFinances(env, ws);
-      result.transactions = fin.transactions;
-      result.feesUpdated = fin.feesUpdated;
+      // Fees are a second pass: if eBay's finance service hiccups (common in the sandbox), orders still count as synced
+      try {
+        const fin = await syncFinances(env, ws);
+        result.transactions = fin.transactions;
+        result.feesUpdated = fin.feesUpdated;
+      } catch (e) {
+        result.financesError = e instanceof Error ? e.message : String(e);
+      }
       result.scrubbed = await scrubShippedBuyerDetails();
       const summary = { ...result, preview: undefined };
       await db

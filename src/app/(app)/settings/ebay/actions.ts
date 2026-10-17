@@ -68,13 +68,17 @@ export async function saveEbaySettings(_prev: unknown, fd: FormData): Promise<Ac
 }
 
 /** Publishes one reviewed item. Mock mode returns a preview; sandbox never changes her real item. */
-export async function publishToEbay(itemId: string): Promise<ActionResult<PublishResult>> {
+export async function publishToEbay(itemId: string, price?: number | null): Promise<ActionResult<PublishResult>> {
   return attempt(async () => {
     const me = await requireMember();
     const mode = await ebayModeFor(me.workspace.id);
     if (!mode.canPublish) throw new FormError(mode.publishOffReason ?? "Publishing is off.");
     const env = mode.env;
     const supabase = await createClient();
+    if (price !== undefined && price !== null) {
+      if (!(price > 0)) throw new FormError("Enter a price above $0.");
+      await supabase.from("items").update({ list_price: Math.round(price * 100) / 100 }).eq("id", itemId);
+    }
     const result = await publishItem(supabase, itemId, env, me.userId, me.workspace.id);
     if (!result.dryRun) refresh();
     return result;
