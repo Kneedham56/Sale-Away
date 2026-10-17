@@ -49,3 +49,5 @@ next-env.d.ts
 *.docx
 /Sale Away With Me Build Plan.md
 /.claude/launch.json
+
+.vercel
