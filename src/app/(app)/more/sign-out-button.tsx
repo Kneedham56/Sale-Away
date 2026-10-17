@@ -1,20 +1,8 @@
-"use client";
-
-import { useRouter } from "next/navigation";
-import { createClient } from "@/lib/supabase/client";
-
-export function SignOutButton() {
-  const router = useRouter();
+/** A plain form post, so signing out always completes (no client state to get stuck). */
+export function SignOutButton({ className = "btn-ghost" }: { className?: string }) {
   return (
-    <button
-      className="btn-ghost"
-      onClick={async () => {
-        await createClient().auth.signOut();
-        router.replace("/login");
-        router.refresh();
-      }}
-    >
-      Sign out
-    </button>
+    <form action="/auth/signout" method="post">
+      <button className={className}>Sign out</button>
+    </form>
   );
 }

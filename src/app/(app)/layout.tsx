@@ -3,6 +3,7 @@ import { Suspense } from "react";
 import { BottomNav, BottomNavView, TopNav, TopNavView } from "./nav";
 import { OfflineBanner } from "./offline-banner";
 import { BusinessName } from "./business-name";
+import { SignOutButton } from "./more/sign-out-button";
 
 export default function AppLayout({ children }: LayoutProps<"/">) {
   return (
@@ -21,6 +22,9 @@ export default function AppLayout({ children }: LayoutProps<"/">) {
           <Suspense fallback={<TopNavView path="" />}>
             <TopNav />
           </Suspense>
+          <div className="ml-auto hidden md:block">
+            <SignOutButton className="rounded-lg px-3 py-1.5 text-sm text-muted hover:text-fg" />
+          </div>
         </header>
         <main className="px-4 pb-[calc(env(safe-area-inset-bottom)+6rem)] md:px-6 md:pb-10">{children}</main>
       </div>

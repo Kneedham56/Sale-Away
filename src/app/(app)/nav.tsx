@@ -21,6 +21,7 @@ const DESKTOP_EXTRA = [
   { href: "/reports", label: "Reports" },
   { href: "/taxes", label: "Taxes" },
   { href: "/settings", label: "Settings" },
+  { href: "/more", label: "More" },
 ];
 
 function isActive(path: string, href: string) {
