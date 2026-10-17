@@ -24,7 +24,18 @@ function readSticky(): Sticky {
   }
 }
 
-export function AddItemForm({ lookups, today, workspaceId }: { lookups: Lookups; today: string; workspaceId: string }) {
+export function AddItemForm({
+  lookups,
+  today,
+  workspaceId,
+  tripId = null,
+}: {
+  lookups: Lookups;
+  today: string;
+  workspaceId: string;
+  /** Opened from a trip's "Add items" button: that trip is pre-selected */
+  tripId?: string | null;
+}) {
   const router = useRouter();
   const itemId = useRef<string | null>(null);
   const [formKey, setFormKey] = useState(0);
@@ -37,10 +48,11 @@ export function AddItemForm({ lookups, today, workspaceId }: { lookups: Lookups;
   // Trip, storage spot and kind carry over between items (she logs a whole haul at once)
   useEffect(() => {
     const s = readSticky();
+    if (tripId && lookups.sources.some((src) => src.id === tripId)) s.sourceId = tripId;
     const validSource = s.sourceId === "" || lookups.sources.some((src) => src.id === s.sourceId);
     // eslint-disable-next-line react-hooks/set-state-in-effect -- one-time restore from localStorage after hydration
     setSticky(validSource ? s : { ...s, sourceId: "" });
-  }, [lookups.sources]);
+  }, [lookups.sources, tripId]);
 
   function updateSticky(patch: Partial<Sticky>) {
     setSticky((prev) => {

@@ -6,7 +6,7 @@ import { publishToEbay } from "../settings/ebay/actions";
 type Row = { id: string; title: string };
 type Status = { state: "queued" | "working" | "done" | "error"; note?: string; url?: string | null };
 
-/** Bulk publish from Ready to List (replaces Seller Hub's bulk edit page). One at a time, with progress. */
+/** Bulk publish from Inventory > Drafted (replaces Seller Hub's bulk edit page). One at a time, with progress. */
 export function PublishPanel({ items, env }: { items: Row[]; env: string }) {
   const [selected, setSelected] = useState<Set<string>>(new Set());
   const [status, setStatus] = useState<Record<string, Status>>({});

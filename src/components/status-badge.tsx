@@ -10,6 +10,7 @@ const TONES: Record<ItemStatus, string> = {
   donated: "bg-border text-muted",
   damaged: "bg-danger/15 text-danger",
   kept: "bg-border text-muted",
+  discarded: "bg-border text-muted",
 };
 
 export function StatusBadge({ status }: { status: ItemStatus }) {

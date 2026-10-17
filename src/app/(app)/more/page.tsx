@@ -6,26 +6,44 @@ import { SignOutButton } from "./sign-out-button";
 
 export const metadata: Metadata = { title: "More" };
 
-const LINKS = [
-  ["/quick", "Quick Check", "Snap a photo in the store: KEEP or DONATE"],
-  ["/ready", "Ready to list", "Reviewed listings: copy into eBay or publish"],
-  ["/batch", "Batch generate", "AI listings for several unlisted items at once"],
-  ["/outgoing", "Outgoing", "Orders to pack and ship, pick list"],
-  ["/sold", "Sold", "Month by month, replaces the monthly tabs"],
-  ["/trips", "Sourcing trips", "Where things came from and what they earned"],
-  ["/expenses", "Expenses & mileage", "Quick add for supplies, bills and miles"],
-  ["/reports", "Reports", "By month, trip, category, platform; aging"],
-  ["/taxes", "Taxes", "Year-end figures and export"],
-  ["/settings", "Settings", "Fee rates, storage spots, categories, AI prompts"],
-  ["/settings/ebay", "eBay", "Connect, sync orders and fees, listing defaults"],
-  ["/activity", "Activity", "Every change the app made on eBay"],
+// Grouped the way she works: do the work, look back, set things up
+const SECTIONS = [
+  {
+    title: "Workflow",
+    links: [
+      ["/trips", "1 · Trips", "Log a sourcing trip, then add what you bought"],
+      ["/unlisted", "2 · Inventory", "Bought but not listed yet (To list · Drafted)"],
+      ["/listed", "3 · Listed", "Live listings; take down the stale ones"],
+      ["/outgoing", "4 · Outgoing", "Sold: pack and ship"],
+      ["/completed", "5 · Completed", "Shipped, or taken down for good"],
+      ["/quick", "Quick Check", "Snap a photo in the store: KEEP or DONATE"],
+      ["/batch", "Batch AI listings", "Draft listings for several items at once"],
+    ],
+  },
+  {
+    title: "Insights",
+    links: [
+      ["/sold", "Sales by month", "Replaces the monthly tabs"],
+      ["/reports", "Reports", "By month, trip, category, platform; aging"],
+      ["/expenses", "Expenses & mileage", "Supplies, bills and miles"],
+      ["/taxes", "Taxes", "Year-end figures and export"],
+    ],
+  },
+  {
+    title: "Setup",
+    links: [
+      ["/settings", "Settings", "Fee rates, storage spots, categories, AI prompts"],
+      ["/settings/ebay", "eBay", "Connection, sync, listing defaults"],
+      ["/activity", "Activity", "Every change the app made on eBay"],
+    ],
+  },
 ] as const;
 
 export default async function MorePage() {
   const me = await requireMember();
   return (
     <div className="mx-auto max-w-xl">
-      <PageHeader title="More" subtitle={`Signed in as ${me.displayName} · ${me.workspace.name}`} />
+      <PageHeader title="Menu" subtitle={`Signed in as ${me.displayName} · ${me.workspace.name}`} />
       {(me.workspaces.length > 1 || me.role === "admin") && (
         <Link href="/businesses" className="card mb-4 flex items-center justify-between px-4 py-3.5">
           <span>
@@ -35,19 +53,24 @@ export default async function MorePage() {
           <span className="text-muted">›</span>
         </Link>
       )}
-      <ul className="list">
-        {LINKS.map(([href, label, hint]) => (
-          <li key={href}>
-            <Link href={href} className="flex items-center justify-between gap-3 px-4 py-3.5 active:bg-border/40">
-              <span>
-                <span className="block font-medium">{label}</span>
-                <span className="block text-xs text-muted">{hint}</span>
-              </span>
-              <span className="text-muted">›</span>
-            </Link>
-          </li>
-        ))}
-      </ul>
+      {SECTIONS.map((section) => (
+        <section key={section.title} className="mb-5">
+          <h2 className="mb-2 px-1 text-xs font-semibold tracking-wide text-muted uppercase">{section.title}</h2>
+          <ul className="list">
+            {section.links.map(([href, label, hint]) => (
+              <li key={href}>
+                <Link href={href} className="flex items-center justify-between gap-3 px-4 py-3.5 active:bg-border/40">
+                  <span>
+                    <span className="block font-medium">{label}</span>
+                    <span className="block text-xs text-muted">{hint}</span>
+                  </span>
+                  <span className="text-muted">›</span>
+                </Link>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
       <div className="mt-6 text-center">
         <SignOutButton />
       </div>

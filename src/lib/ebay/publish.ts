@@ -228,3 +228,45 @@ export async function publishItem(
     throw e;
   }
 }
+
+export type EndResult = { ended: boolean; note: string | null };
+
+/**
+ * Takes an item off eBay when it sold elsewhere or she gave up on it.
+ * Works for listings the app published (Inventory API). Listings made in Seller Hub can't be ended
+ * through that API, so she gets a reminder instead.
+ */
+export async function endListing(
+  supabase: SupabaseClient,
+  itemId: string,
+  env: EbayEnv,
+  canWrite: boolean,
+  actor: string | null,
+  ws: string
+): Promise<EndResult> {
+  const { data: item } = await supabase.from("items").select("ebay_item_id").eq("id", itemId).single();
+  const { data: listing } = await supabase
+    .from("ebay_listings")
+    .select("id, offer_id, listing_id")
+    .eq("item_id", itemId)
+    .eq("environment", env === "mock" ? "sandbox" : env)
+    .eq("status", "published")
+    .maybeSingle();
+  if (!listing?.offer_id) {
+    return item?.ebay_item_id
+      ? { ended: false, note: `It's still live on eBay (item ${item.ebay_item_id}, made in Seller Hub). End it there.` }
+      : { ended: false, note: null };
+  }
+  if (env === "mock") return { ended: false, note: "Sample data: nothing to end on eBay." };
+  if (!canWrite) return { ended: false, note: `It's still live on eBay (item ${listing.listing_id}). End it there, or turn on publishing.` };
+  try {
+    await getEbayClient(env, ws).withdrawOffer(listing.offer_id);
+    await supabase.from("ebay_listings").update({ status: "ended" }).eq("id", listing.id);
+    await log(ws, actor, "ebay.offer.withdraw", { environment: env, itemId, offerId: listing.offer_id, listingId: listing.listing_id });
+    return { ended: true, note: `Ended the ${env === "sandbox" ? "test " : ""}eBay listing.` };
+  } catch (e) {
+    const msg = e instanceof Error ? e.message : String(e);
+    await log(ws, actor, "ebay.withdraw_failed", { environment: env, itemId, error: msg });
+    return { ended: false, note: `Couldn't end the eBay listing (${msg}). End it on eBay.` };
+  }
+}

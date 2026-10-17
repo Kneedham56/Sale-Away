@@ -50,6 +50,9 @@ export default async function TripPage({ params }: PageProps<"/trips/[id]">) {
         back={{ href: "/trips", label: "Trips" }}
         subtitle={`${SOURCE_TYPES[trip.type] ?? trip.type}${trip.date ? ` · ${shortDate(trip.date)}` : ""}${trip.place ? ` · ${trip.place}` : ""}`}
       />
+      <Link href={`/add?trip=${trip.id}`} className="btn-primary mb-4 w-full bg-coral">
+        + Add items from this trip
+      </Link>
       <div className="mb-2 grid grid-cols-2 gap-2 sm:grid-cols-4">
         {tiles.map(([label, value]) => (
           <div key={label} className="card p-3">

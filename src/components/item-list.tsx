@@ -49,7 +49,9 @@ export async function ItemList({ mode, params }: { mode: "unlisted" | "listed"; 
   let query = supabase
     .from("items_view")
     .select("id, title, kind, category, format, cost, list_price, storage_location, lot_code, date_sourced, date_listed, days_active, thumb_path", { count: "exact" });
-  query = mode === "unlisted" ? query.in("status", ["intake", "unlisted"]) : query.eq("status", "listed");
+  const drafted = mode === "unlisted" && one(params, "stage") === "drafted";
+  query =
+    mode === "unlisted" ? query.in("status", drafted ? ["ready_to_list"] : ["intake", "unlisted"]) : query.eq("status", "listed");
   if (q) query = query.or(`title.ilike.%${q}%,storage_location.ilike.%${q}%,lot_code.ilike.%${q}%,sku.ilike.%${q}%`);
   if (kind) query = query.eq("kind", kind);
   if (category) query = query.eq("category", category);
@@ -87,6 +89,7 @@ export async function ItemList({ mode, params }: { mode: "unlisted" | "listed"; 
           enterKeyHint="search"
         />
         {kind && <input type="hidden" name="kind" value={kind} />}
+        {drafted && <input type="hidden" name="stage" value="drafted" />}
         {stale && <input type="hidden" name="stale" value="1" />}
         {category && <input type="hidden" name="category" value={category} />}
         {trip && <input type="hidden" name="trip" value={trip} />}
@@ -141,7 +144,7 @@ export async function ItemList({ mode, params }: { mode: "unlisted" | "listed"; 
       </p>
 
       {!items?.length ? (
-        <Empty>{q || kind || stale ? "Nothing matches." : mode === "unlisted" ? "Nothing waiting to be listed." : "Nothing listed yet."}</Empty>
+        <Empty>{q || kind || stale ? "Nothing matches." : drafted ? "No drafted listings. Generate one on an item and tap Save for later." : mode === "unlisted" ? "Nothing waiting to be listed." : "Nothing listed yet."}</Empty>
       ) : (
         <ul className="list">
           {items.map((it) => (

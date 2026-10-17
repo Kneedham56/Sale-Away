@@ -32,6 +32,8 @@ export interface EbayClient {
   putInventoryItem(item: InventoryItemPayload): Promise<void>;
   upsertOffer(offer: OfferPayload): Promise<string>;
   publishOffer(offerId: string): Promise<string>;
+  /** Ends a live listing created by the app (Inventory API offer) */
+  withdrawOffer(offerId: string): Promise<void>;
 }
 
 export class EbayError extends Error {
@@ -279,6 +281,10 @@ class RestEbayClient implements EbayClient {
   async publishOffer(offerId: string): Promise<string> {
     const { data } = await this.call<{ listingId: string }>(`/sell/inventory/v1/offer/${offerId}/publish`, { user: true, method: "POST" });
     return data.listingId;
+  }
+
+  async withdrawOffer(offerId: string): Promise<void> {
+    await this.call(`/sell/inventory/v1/offer/${offerId}/withdraw`, { user: true, method: "POST" });
   }
 }
 

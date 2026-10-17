@@ -9,6 +9,8 @@ import { todayIso } from "@/lib/dates";
 import { PHOTO_BUCKET } from "@/lib/photos";
 import { attempt, bool, FormError, isoDate, number, requiredText, text, type ActionResult } from "@/lib/form";
 import type { ItemStatus } from "@/lib/format";
+import { endListing } from "@/lib/ebay/publish";
+import { ebayModeFor } from "@/lib/ebay/mode";
 
 export type NewPhoto = { storage_path: string; jpeg_path: string | null; thumb_path: string | null };
 type Db = Awaited<ReturnType<typeof createClient>>;
@@ -134,10 +136,19 @@ export async function updateItem(_prev: unknown, fd: FormData): Promise<ActionRe
   });
 }
 
-const EXIT_STATUSES: ItemStatus[] = ["donated", "damaged", "kept"];
+const EXIT_STATUSES: ItemStatus[] = ["donated", "damaged", "kept", "discarded"];
+
+/** When an item leaves Listed without selling on eBay, take it off eBay too (or say how). */
+async function takeOffEbay(supabase: Db, itemId: string): Promise<string | null> {
+  const me = await requireMember();
+  const mode = await ebayModeFor(me.workspace.id);
+  const r = await endListing(supabase, itemId, mode.env, mode.canPublish, me.userId, me.workspace.id);
+  return r.note;
+}
 const ACTIVE_STATUSES: ItemStatus[] = ["intake", "unlisted", "ready_to_list", "listed"];
 
-export async function changeStatus(_prev: unknown, fd: FormData): Promise<ActionResult> {
+/** Returns a note when something on eBay needs her attention (e.g. a Seller Hub listing to end by hand). */
+export async function changeStatus(_prev: unknown, fd: FormData): Promise<ActionResult<string | null>> {
   return attempt(async () => {
     const supabase = await db();
     const id = requiredText(fd, "id", "Item id");
@@ -177,7 +188,9 @@ export async function changeStatus(_prev: unknown, fd: FormData): Promise<Action
       new_value: status,
       note: text(fd, "note"),
     });
+    const note = EXIT_STATUSES.includes(status) && before.status === "listed" ? await takeOffEbay(supabase, id) : null;
     refresh();
+    return note;
   });
 }
 
@@ -303,8 +316,12 @@ export async function markSold(_prev: unknown, fd: FormData): Promise<ActionResu
     );
     must(await supabase.from("items").update({ status: "sold", date_sold: soldDate }).eq("id", itemId));
     await supabase.from("item_events").insert({ item_id: itemId, action: "Sold", note: `${platform} for $${gross}` });
-    return itemId;
+    // Sold somewhere else: take the eBay listing down too (FLYP does this today for her other sites)
+    const note = platform !== "ebay" ? await takeOffEbay(supabase, itemId) : null;
+    return { itemId, note };
   });
-  if (result.ok) redirect(`/items/${result.data}`);
-  return result;
+  if (result.ok && result.data) {
+    redirect(`/items/${result.data.itemId}${result.data.note ? `?notice=${encodeURIComponent(result.data.note)}` : ""}`);
+  }
+  return result.ok ? { ok: true } : result;
 }

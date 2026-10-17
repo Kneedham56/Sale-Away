@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useActionState, useState } from "react";
 import { changeStatus, logItemEvent } from "../actions";
 import { Field, MoneyInput, SubmitButton } from "@/components/fields";
-import type { ItemStatus } from "@/lib/format";
+import { EXIT_LABELS, type ItemStatus } from "@/lib/format";
 
 type Panel = null | "list" | "log" | "exit";
 
@@ -23,7 +23,7 @@ export function StatusActions({
   listedViaEbay?: boolean;
 }) {
   const [opened, setOpened] = useState<{ panel: Panel; at: unknown[] }>({ panel: null, at: [] });
-  const [exitTo, setExitTo] = useState<ItemStatus>("donated");
+  const [exitTo, setExitTo] = useState<ItemStatus>("discarded");
   const [statusState, statusAction] = useActionState(changeStatus, null);
   const [logState, logAction] = useActionState(logItemEvent, null);
   // A panel closes itself once its save succeeds (a new ok result arrives after it was opened)
@@ -34,7 +34,7 @@ export function StatusActions({
 
   const isActive = ["intake", "unlisted", "ready_to_list"].includes(item.status);
   const isListed = item.status === "listed";
-  const isExited = ["donated", "damaged", "kept"].includes(item.status);
+  const isExited = ["donated", "damaged", "kept", "discarded"].includes(item.status);
 
   function toggle(p: Panel) {
     setOpened({ panel: panel === p ? null : p, at: [statusState, logState] });
@@ -60,7 +60,7 @@ export function StatusActions({
         )}
         {(isActive || isListed) && (
           <button className="btn-small min-h-11" onClick={() => toggle("exit")}>
-            Donate / damaged / keep…
+            {isListed ? "Take it down…" : "Donate / give up…"}
           </button>
         )}
         {(isExited || isListed || item.status === "ready_to_list") && (
@@ -125,11 +125,12 @@ export function StatusActions({
       {panel === "exit" && (
         <form action={statusAction} className="card space-y-3 p-4">
           <input type="hidden" name="id" value={item.id} />
-          <div className="flex gap-2">
-            {(["donated", "damaged", "kept"] as const).map((s) => (
+          <p className="text-sm text-muted">Where did it go? It moves to Completed{isListed ? " and comes off eBay" : ""}.</p>
+          <div className="flex flex-wrap gap-2">
+            {(["discarded", "donated", "damaged", "kept"] as const).map((s) => (
               <label key={s} className={`chip cursor-pointer ${exitTo === s ? "chip-active" : ""}`}>
                 <input type="radio" name="status" value={s} className="sr-only" checked={exitTo === s} onChange={() => setExitTo(s)} />
-                {s === "donated" ? "Donated" : s === "damaged" ? "Damaged" : "Keeping it"}
+                {EXIT_LABELS[s]}
               </label>
             ))}
           </div>
@@ -142,6 +143,7 @@ export function StatusActions({
       )}
 
       {statusState && !statusState.ok && <p className="text-sm text-danger">{statusState.error}</p>}
+      {statusState?.ok && statusState.data && <p className="rounded-xl bg-coral/10 px-3 py-2 text-sm text-coral">{statusState.data}</p>}
     </div>
   );
 }

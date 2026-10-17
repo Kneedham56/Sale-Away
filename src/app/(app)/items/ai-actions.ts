@@ -63,7 +63,7 @@ export type AcceptedListing = {
   ebay_category_id?: string | null;
 };
 
-/** She approves (after any edits): fields land on the item and it moves to Ready to List. The AI never publishes. */
+/** She approves (after any edits): fields land on the item and it moves to Inventory > Drafted. The AI never publishes. */
 export async function acceptListing(itemId: string, runId: string | null, l: AcceptedListing): Promise<ActionResult> {
   return attempt(async () => {
     const supabase = await db();

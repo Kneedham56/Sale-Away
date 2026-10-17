@@ -26,7 +26,7 @@ export default async function BatchPage() {
     <>
       <PageHeader
         title="Batch generate"
-        back={{ href: "/ready", label: "Ready to list" }}
+        back={{ href: "/unlisted", label: "Inventory" }}
         subtitle="Pick unlisted items with photos. Suggestions are saved on each item for you to review and accept."
       />
       {!items?.length ? (

@@ -3,24 +3,25 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 
+// Phone: her daily loop. Everything else is behind the menu button in the header.
 const TABS = [
   { href: "/", label: "Home", icon: HomeIcon },
-  { href: "/unlisted", label: "Unlisted", icon: BoxIcon },
+  { href: "/unlisted", label: "Inventory", icon: BoxIcon },
   { href: "/add", label: "Add", icon: PlusIcon, primary: true },
   { href: "/listed", label: "Listed", icon: TagIcon },
-  { href: "/more", label: "More", icon: MenuIcon },
+  { href: "/outgoing", label: "Outgoing", icon: TruckIcon },
 ];
 
-const DESKTOP_EXTRA = [
-  { href: "/ready", label: "Ready" },
-  { href: "/quick", label: "Quick Check" },
-  { href: "/outgoing", label: "Outgoing" },
-  { href: "/sold", label: "Sold" },
+// Computer: the whole workflow in order, then hindsight and settings
+const DESKTOP_LINKS = [
+  { href: "/", label: "Home" },
   { href: "/trips", label: "Trips" },
-  { href: "/expenses", label: "Expenses" },
-  { href: "/reports", label: "Reports" },
-  { href: "/taxes", label: "Taxes" },
-  { href: "/settings", label: "Settings" },
+  { href: "/unlisted", label: "Inventory" },
+  { href: "/add", label: "+ Add item" },
+  { href: "/listed", label: "Listed" },
+  { href: "/outgoing", label: "Outgoing" },
+  { href: "/completed", label: "Completed" },
+  { href: "/insights", label: "Insights" },
   { href: "/more", label: "More" },
 ];
 
@@ -67,7 +68,7 @@ export function TopNav() {
 }
 
 export function TopNavView({ path }: { path: string }) {
-  const links = [...TABS.filter((t) => t.href !== "/more"), ...DESKTOP_EXTRA];
+  const links = DESKTOP_LINKS;
   return (
     <nav className="hidden md:block print:hidden">
       <ul className="flex flex-wrap gap-1">
@@ -77,7 +78,7 @@ export function TopNavView({ path }: { path: string }) {
               href={href}
               className={`rounded-lg px-3 py-1.5 text-sm font-medium ${isActive(path, href) ? "bg-accent/10 text-accent" : "text-muted hover:text-fg"}`}
             >
-              {label === "Add" ? "+ Add item" : label}
+              {label}
             </Link>
           </li>
         ))}
@@ -101,6 +102,9 @@ function PlusIcon(p: IconProps) {
 function TagIcon(p: IconProps) {
   return <svg viewBox="0 0 24 24" className={p.className} {...stroke}><path d="M20 12l-8 8-9-9V3h8l9 9z" /><circle cx="7.5" cy="7.5" r="1.5" /></svg>;
 }
-function MenuIcon(p: IconProps) {
+function TruckIcon(p: IconProps) {
+  return <svg viewBox="0 0 24 24" className={p.className} {...stroke}><path d="M3 6h11v10H3z" /><path d="M14 9h4l3 3v4h-7" /><circle cx="7" cy="17" r="2" /><circle cx="17" cy="17" r="2" /></svg>;
+}
+export function MenuIcon(p: IconProps) {
   return <svg viewBox="0 0 24 24" className={p.className} {...stroke}><path d="M4 6h16M4 12h16M4 18h16" /></svg>;
 }

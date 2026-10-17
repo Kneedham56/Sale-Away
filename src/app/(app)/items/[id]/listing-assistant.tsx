@@ -91,10 +91,10 @@ export function ListingAssistant({
       if (!res.ok) return setError(res.error);
       if (!alsoList) return setAccepted("saved");
       const pub = await publishToEbay(itemId, draft.price);
-      // Saved either way; if eBay refused, say why and leave it in Ready to List
+      // Saved either way; if eBay refused, say why and leave it in Drafted
       if (!pub.ok) {
         setAccepted("saved");
-        return setError(`Saved to Ready to List, but not listed yet: ${pub.error}`);
+        return setError(`Saved to Drafted, but not listed yet: ${pub.error}`);
       }
       setAccepted({ url: pub.data!.url, preview: pub.data!.dryRun });
     });
@@ -261,7 +261,7 @@ export function ListingAssistant({
           </Field>
 
           {accepted === "saved" ? (
-            <p className="rounded-xl bg-ok/15 px-4 py-3 text-sm font-medium text-ok">Saved. It&apos;s in Ready to List with copy buttons.</p>
+            <p className="rounded-xl bg-ok/15 px-4 py-3 text-sm font-medium text-ok">Saved. It&apos;s in Inventory → Drafted, ready to post.</p>
           ) : accepted ? (
             <p className="rounded-xl bg-ok/15 px-4 py-3 text-sm font-medium text-ok">
               {accepted.preview ? "Preview OK (sample data, nothing sent). " : `Live on ${listOnEbay?.env === "sandbox" ? "test " : ""}eBay. `}
@@ -279,7 +279,7 @@ export function ListingAssistant({
                 onClick={() => accept(false)}
                 disabled={pending || draft.title.length > TITLE_MAX}
               >
-                {pending ? "Saving…" : listOnEbay ? "Save for later" : "Accept → Ready to list"}
+                {pending ? "Saving…" : listOnEbay ? "Save for later" : "Save for later"}
               </button>
               {listOnEbay && (
                 <button type="button" className="btn-primary bg-coral" onClick={() => accept(true)} disabled={pending || draft.title.length > TITLE_MAX}>

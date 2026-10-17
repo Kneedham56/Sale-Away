@@ -1,16 +1,17 @@
 export type ItemStatus =
-  | "intake" | "unlisted" | "ready_to_list" | "listed" | "sold" | "shipped" | "donated" | "damaged" | "kept";
+  | "intake" | "unlisted" | "ready_to_list" | "listed" | "sold" | "shipped" | "donated" | "damaged" | "kept" | "discarded";
 
 export const STATUS_LABELS: Record<ItemStatus, string> = {
   intake: "Intake",
   unlisted: "Unlisted",
-  ready_to_list: "Ready to list",
+  ready_to_list: "Drafted",
   listed: "Listed",
-  sold: "Sold",
+  sold: "Sold, to ship",
   shipped: "Shipped",
   donated: "Donated",
   damaged: "Damaged",
   kept: "Kept",
+  discarded: "Gave up",
 };
 
 export const KIND_LABELS = { general: "General", book: "Book", media: "Media" } as const;
@@ -66,3 +67,18 @@ export function pct(n: number | null | undefined): string {
   if (n === null || n === undefined) return "–";
   return `${Math.round(Number(n) * 100)}%`;
 }
+
+/** Where an item is in her workflow: trip -> inventory -> listed -> outgoing -> completed */
+export type Stage = "inventory" | "listed" | "outgoing" | "completed";
+export const STAGE_STATUSES: Record<Stage, ItemStatus[]> = {
+  inventory: ["intake", "unlisted", "ready_to_list"],
+  listed: ["listed"],
+  outgoing: ["sold"],
+  completed: ["shipped", "donated", "damaged", "kept", "discarded"],
+};
+export const EXIT_LABELS: Partial<Record<ItemStatus, string>> = {
+  donated: "Donated",
+  damaged: "Damaged",
+  kept: "Kept it",
+  discarded: "Gave up / threw away",
+};

@@ -6,7 +6,7 @@ import { createClient } from "@/lib/supabase/server";
 import { getLookups } from "@/lib/data/lookups";
 import { signPaths } from "@/lib/photos";
 import { todayIso } from "@/lib/dates";
-import { FULFILLMENT_LABELS, money, shortDate, STATUS_LABELS, type ItemStatus } from "@/lib/format";
+import { FULFILLMENT_LABELS, money, shortDate, STAGE_STATUSES, STATUS_LABELS, type ItemStatus } from "@/lib/format";
 import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { ItemPhotos } from "./item-photos";
@@ -28,7 +28,7 @@ export const maxDuration = 300;
 
 const UUID = /^[0-9a-f-]{36}$/i;
 
-export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
+export default async function ItemPage({ params, searchParams }: PageProps<"/items/[id]">) {
   const me = await requireMember();
   const { id } = await params;
   if (!UUID.test(id)) notFound();
@@ -74,7 +74,16 @@ export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
 
   const urls = await signPaths(supabase, (photos ?? []).flatMap((p) => [p.jpeg_path ?? p.storage_path, p.thumb_path]));
   const status = item.status as ItemStatus;
-  const backHref = ["listed"].includes(status) ? "/listed" : ["sold", "shipped"].includes(status) ? "/sold" : "/unlisted";
+  const backTo: [string, string] =
+    status === "listed"
+      ? ["/listed", "Listed"]
+      : status === "sold"
+        ? ["/outgoing", "Outgoing"]
+        : STAGE_STATUSES.completed.includes(status)
+          ? ["/completed", "Completed"]
+          : status === "ready_to_list"
+            ? ["/unlisted?stage=drafted", "Drafted"]
+            : ["/unlisted", "Inventory"];
   const actions = ((lookups.settings.item_event_actions as string[] | undefined) ?? [
     "Reduced Price", "Relisted Item", "Revised Listing", "Changed Photos", "Removed Listing",
   ]).map((a) => a.trim());
@@ -106,13 +115,17 @@ export default async function ItemPage({ params }: PageProps<"/items/[id]">) {
     <div className="mx-auto max-w-3xl">
       <PageHeader
         title={item.title}
-        back={{ href: backHref, label: STATUS_LABELS[status === "shipped" ? "sold" : status] }}
+        back={{ href: backTo[0], label: backTo[1] }}
         subtitle={
           <span className="flex items-center gap-2">
             <StatusBadge status={status} /> #{item.item_number}
           </span>
         }
       />
+
+      {typeof (await searchParams).notice === "string" && (
+        <p className="mb-4 rounded-xl bg-coral/10 px-4 py-3 text-sm font-medium text-coral">{(await searchParams).notice}</p>
+      )}
 
       <div className="grid gap-6 md:grid-cols-2">
         <ItemPhotos
