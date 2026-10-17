@@ -11,11 +11,13 @@ export const SCOPES = {
   accountRead: "https://api.ebay.com/oauth/api_scope/sell.account.readonly",
   account: "https://api.ebay.com/oauth/api_scope/sell.account",
   inventory: "https://api.ebay.com/oauth/api_scope/sell.inventory",
+  inventoryRead: "https://api.ebay.com/oauth/api_scope/sell.inventory.readonly",
 } as const;
 
 /** Read scopes for Phase 3; listing scopes are added only when writing is turned on (Phase 4). */
 export function userScopes(write: boolean): string[] {
-  const read = [SCOPES.identity, SCOPES.fulfillmentRead, SCOPES.finances, SCOPES.accountRead];
+  // base + inventory.readonly let the app read her live listings (to spot ones that ended because they sold elsewhere)
+  const read = [SCOPES.base, SCOPES.identity, SCOPES.fulfillmentRead, SCOPES.finances, SCOPES.accountRead, SCOPES.inventoryRead];
   // Writing also needs account management (inventory location, business policies on a fresh test seller)
   return write ? [...read, SCOPES.inventory, SCOPES.account] : read;
 }
