@@ -64,6 +64,13 @@ async function matchItem(db: SupabaseClient, ws: string, line: EbayLineItem): Pr
   return best ? { id: best.id, cost: best.cost, title: best.title } : null;
 }
 
+/** Earliest order date to import for this business ("ebay_sync_start" setting, YYYY-MM-DD), as an ISO timestamp. */
+async function syncStart(db: SupabaseClient, ws: string): Promise<string | null> {
+  const { data } = await db.from("settings").select("value").eq("workspace_id", ws).eq("key", "ebay_sync_start").maybeSingle();
+  const v = typeof data?.value === "string" ? data.value : null;
+  return v && /^\d{4}-\d{2}-\d{2}$/.test(v) ? new Date(`${v}T00:00:00-07:00`).toISOString() : null;
+}
+
 async function feeRate(db: SupabaseClient, ws: string): Promise<number> {
   const { data } = await db.from("platforms").select("fee_rate").eq("workspace_id", ws).eq("code", "ebay").single();
   return Number(data?.fee_rate ?? 0.15);
@@ -79,18 +86,22 @@ export async function syncOrders(env: EbayEnv, ws: string, opts: { dryRun?: bool
     transactions: 0, feesUpdated: 0, scrubbed: 0, preview: dryRun ? [] : undefined,
   };
 
+  // Never reach back before the business's sync start (her spreadsheet already covers earlier sales)
+  const startFloor = await syncStart(db, ws);
   let since = opts.since;
   if (!since) {
     const { data: state } = env === "mock" ? { data: null } : await db.from("ebay_sync_state").select("orders_synced_at").eq("workspace_id", ws).eq("environment", env).maybeSingle();
     const last = state?.orders_synced_at ? new Date(state.orders_synced_at) : new Date(Date.now() - 30 * 86400_000);
     since = new Date(last.getTime() - 3600_000).toISOString(); // 1h overlap
   }
+  if (startFloor && since < startFloor) since = startFloor;
   const startedAt = new Date().toISOString();
   const orders = await client.getOrders(since);
   const rate = await feeRate(db, ws);
   result.orders = orders.length;
 
   for (const order of orders) {
+    if (startFloor && order.creationDate < startFloor) continue; // bought before the sync start: already in her records
     for (const line of order.lineItems) {
       result.lines++;
       const item = await matchItem(db, ws, line);
@@ -142,7 +153,10 @@ export async function syncOrders(env: EbayEnv, ws: string, opts: { dryRun?: bool
           .eq("id", existing.id);
         result.updated++;
       } else {
-        // She may have marked this sale by hand already: attach the order instead of adding a twin
+        // She may have marked this sale by hand already (within a week of the order): attach the order instead of adding a twin
+        const soldOn = localDate(order.creationDate);
+        const weekBefore = new Date(new Date(soldOn).getTime() - 7 * 86400_000).toISOString().slice(0, 10);
+        const weekAfter = new Date(new Date(soldOn).getTime() + 7 * 86400_000).toISOString().slice(0, 10);
         const manual = item
           ? (
               await db
@@ -153,6 +167,8 @@ export async function syncOrders(env: EbayEnv, ws: string, opts: { dryRun?: bool
                 .eq("platform", "ebay")
                 .is("order_id", null)
                 .eq("environment", environment)
+                .gte("sold_date", weekBefore)
+                .lte("sold_date", weekAfter)
                 .limit(1)
             ).data?.[0]
           : null;
