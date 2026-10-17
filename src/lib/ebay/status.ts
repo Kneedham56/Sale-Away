@@ -1,13 +1,14 @@
 import "server-only";
 import { after } from "next/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { ebayEnv } from "./config";
+import type { EbayEnv } from "./config";
+import { ebayModeFor } from "./mode";
 import { runEbaySync } from "./sync";
 
 const STALE_MS = 15 * 60_000;
 
 export type EbayStatus = {
-  env: ReturnType<typeof ebayEnv>;
+  env: EbayEnv;
   connected: boolean;
   username: string | null;
   expiresSoon: boolean;
@@ -20,7 +21,7 @@ export type EbayStatus = {
  * over 15 minutes old, so orders arrive whenever she opens the app (Vercel's free plan only allows daily cron).
  */
 export async function ebayStatusAndAutoSync(ws: string): Promise<EbayStatus> {
-  const env = ebayEnv();
+  const { env } = await ebayModeFor(ws);
   if (env === "mock") return { env, connected: false, username: null, expiresSoon: false, lastRunAt: null, lastError: null };
   const admin = createAdminClient();
   const [{ data: conn }, { data: state }] = await Promise.all([

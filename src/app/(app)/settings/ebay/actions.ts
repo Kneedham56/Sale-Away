@@ -5,7 +5,7 @@ import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { requireMember } from "@/lib/auth";
 import { attempt, FormError, text, type ActionResult } from "@/lib/form";
-import { ebayEnv, writeEnabled } from "@/lib/ebay/config";
+import { ebayModeFor } from "@/lib/ebay/mode";
 import { runEbaySync, type SyncResult } from "@/lib/ebay/sync";
 import { forgetUserToken } from "@/lib/ebay/tokens";
 import { publishItem, type PublishResult } from "@/lib/ebay/publish";
@@ -13,7 +13,7 @@ import { publishItem, type PublishResult } from "@/lib/ebay/publish";
 export async function syncNow(): Promise<ActionResult<SyncResult>> {
   return attempt(async () => {
     const me = await requireMember();
-    const env = ebayEnv();
+    const { env } = await ebayModeFor(me.workspace.id);
     if (env !== "mock") {
       const { data } = await createAdminClient()
         .from("ebay_connection")
@@ -71,11 +71,36 @@ export async function saveEbaySettings(_prev: unknown, fd: FormData): Promise<Ac
 export async function publishToEbay(itemId: string): Promise<ActionResult<PublishResult>> {
   return attempt(async () => {
     const me = await requireMember();
-    const env = ebayEnv();
-    if (env !== "mock" && !writeEnabled()) throw new FormError("Publishing is switched off (EBAY_WRITE_ENABLED).");
+    const mode = await ebayModeFor(me.workspace.id);
+    if (!mode.canPublish) throw new FormError(mode.publishOffReason ?? "Publishing is off.");
+    const env = mode.env;
     const supabase = await createClient();
     const result = await publishItem(supabase, itemId, env, me.userId, me.workspace.id);
     if (!result.dryRun) refresh();
     return result;
+  });
+}
+
+/** Doc only: which eBay this business uses, and whether it may publish (real eBay also needs the server switch). */
+export async function setEbayMode(_prev: unknown, fd: FormData): Promise<ActionResult> {
+  return attempt(async () => {
+    const me = await requireMember();
+    if (me.role !== "admin") throw new FormError("Only the admin can change this.");
+    const env = text(fd, "ebay_environment");
+    if (env !== "mock" && env !== "sandbox" && env !== "production") throw new FormError("Unknown eBay mode.");
+    const publishing = fd.get("ebay_publishing") === "on";
+    const supabase = await createClient();
+    const { error } = await supabase.from("settings").upsert(
+      [
+        { key: "ebay_environment", value: env },
+        { key: "ebay_publishing", value: publishing },
+      ],
+      { onConflict: "workspace_id,key" }
+    );
+    if (error) throw new Error(error.message);
+    await createAdminClient()
+      .from("activity_log")
+      .insert({ workspace_id: me.workspace.id, actor: me.userId, action: "ebay.mode_changed", detail: { environment: env, publishing } });
+    refresh();
   });
 }

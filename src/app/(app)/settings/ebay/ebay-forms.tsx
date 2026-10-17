@@ -1,7 +1,7 @@
 "use client";
 
 import { useActionState, useState, useTransition } from "react";
-import { saveEbaySettings, syncNow } from "./actions";
+import { saveEbaySettings, setEbayMode, syncNow } from "./actions";
 import { Field, SubmitButton } from "@/components/fields";
 import type { SyncResult } from "@/lib/ebay/sync";
 import type { Policies } from "@/lib/ebay/types";
@@ -99,6 +99,42 @@ export function EbaySettingsForm({
       {state && !state.ok && <p className="text-sm text-danger">{state.error}</p>}
       {state?.ok && <p className="text-sm font-medium text-ok">Saved.</p>}
       <SubmitButton>Save eBay settings</SubmitButton>
+    </form>
+  );
+}
+
+/** Doc only: pick which eBay this business uses and whether it may publish. */
+export function EbayModeForm({ env, publishing }: { env: string; publishing: boolean }) {
+  const [state, action] = useActionState(setEbayMode, null);
+  const [choice, setChoice] = useState(env);
+  const options = [
+    ["sandbox", "eBay sandbox (test site)", "Fake listings and test buyers. Safe for trying everything, including publishing."],
+    ["production", "Real eBay", "Her actual account. Read-only unless publishing is switched on below."],
+    ["mock", "Sample data", "No eBay at all; built-in sample orders."],
+  ] as const;
+  return (
+    <form action={action} className="space-y-3">
+      {options.map(([value, label, hint]) => (
+        <label key={value} className={`flex cursor-pointer gap-3 rounded-xl border p-3 ${choice === value ? "border-accent bg-accent/5" : "border-border"}`}>
+          <input type="radio" name="ebay_environment" value={value} checked={choice === value} onChange={() => setChoice(value)} className="mt-1" />
+          <span>
+            <span className="block font-medium">{label}</span>
+            <span className="block text-xs text-muted">{hint}</span>
+          </span>
+        </label>
+      ))}
+      {choice === "production" && (
+        <label className="flex items-start gap-3 rounded-xl bg-coral/10 p-3 text-sm">
+          <input type="checkbox" name="ebay_publishing" defaultChecked={publishing} className="mt-0.5 h-5 w-5" />
+          <span>
+            <strong>Allow publishing real listings</strong> from this business. Also needs the server switch, and a reconnect so eBay grants the
+            listing permission.
+          </span>
+        </label>
+      )}
+      {state && !state.ok && <p className="text-sm text-danger">{state.error}</p>}
+      {state?.ok && <p className="text-sm font-medium text-ok">Saved. If the eBay changed, connect again below.</p>}
+      <SubmitButton>Save eBay mode</SubmitButton>
     </form>
   );
 }

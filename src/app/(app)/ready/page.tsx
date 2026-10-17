@@ -4,7 +4,7 @@ import { requireMember } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { signPaths } from "@/lib/photos";
 import { money } from "@/lib/format";
-import { ebayEnv, writeEnabled } from "@/lib/ebay/config";
+import { ebayModeFor } from "@/lib/ebay/mode";
 import { PageHeader } from "@/components/page-header";
 import { Empty, Thumb } from "@/components/item-row";
 import { CopyButton } from "@/components/copy-button";
@@ -14,7 +14,8 @@ export const metadata: Metadata = { title: "Ready to list" };
 export const maxDuration = 300;
 
 export default async function ReadyPage() {
-  await requireMember();
+  const me = await requireMember();
+  const mode = await ebayModeFor(me.workspace.id);
   const supabase = await createClient();
   const { data: items } = await supabase
     .from("items_view")
@@ -23,7 +24,7 @@ export default async function ReadyPage() {
     .order("updated_at", { ascending: false })
     .limit(500);
   const urls = await signPaths(supabase, (items ?? []).map((i) => i.thumb_path));
-  const canPublish = ebayEnv() === "mock" || writeEnabled();
+  const canPublish = mode.canPublish;
 
   return (
     <>
@@ -36,7 +37,7 @@ export default async function ReadyPage() {
         }
         actions={<Link href="/batch" className="btn-small">Batch generate</Link>}
       />
-      {canPublish && !!items?.length && <PublishPanel items={items.map((i) => ({ id: i.id, title: i.title }))} env={ebayEnv()} />}
+      {canPublish && !!items?.length && <PublishPanel items={items.map((i) => ({ id: i.id, title: i.title }))} env={mode.env} />}
       {!items?.length ? (
         <Empty>Nothing here yet. Open an unlisted item and tap Generate listing, then Accept.</Empty>
       ) : (

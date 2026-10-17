@@ -3,14 +3,15 @@ import Link from "next/link";
 import { requireMember } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
 import { createAdminClient } from "@/lib/supabase/admin";
-import { ebayEnv, hasCredentials, writeEnabled, type EbayEnv } from "@/lib/ebay/config";
+import { hasCredentials, type EbayEnv } from "@/lib/ebay/config";
+import { ebayModeFor } from "@/lib/ebay/mode";
 import { getEbayClient } from "@/lib/ebay/client";
 import type { Policies } from "@/lib/ebay/types";
 import { shortDate } from "@/lib/format";
 import { PageHeader } from "@/components/page-header";
 import { SubmitButton } from "@/components/fields";
 import { disconnectEbay } from "./actions";
-import { EbaySettingsForm, SyncButton } from "./ebay-forms";
+import { EbayModeForm, EbaySettingsForm, SyncButton } from "./ebay-forms";
 
 export const metadata: Metadata = { title: "eBay" };
 export const maxDuration = 300;
@@ -21,6 +22,7 @@ const MESSAGES: Record<string, string> = {
   expired: "That took too long. Try connecting again.",
   "bad-state": "Something didn't match on the way back from eBay. Try again.",
   "missing-keys": "eBay developer keys aren't set on the server yet.",
+  mock: "This business uses sample data. Switch its eBay mode first.",
   failed: "Connecting failed",
 };
 
@@ -31,7 +33,8 @@ function expiresWithin30Days(iso: string | null) {
 export default async function EbaySettingsPage({ searchParams }: PageProps<"/settings/ebay">) {
   const me = await requireMember();
   const sp = await searchParams;
-  const env = ebayEnv();
+  const mode = await ebayModeFor(me.workspace.id);
+  const env = mode.env;
   const supabase = await createClient();
   const admin = createAdminClient();
   const [{ data: connections }, { data: states }, { data: settingRows }] = await Promise.all([
@@ -75,6 +78,22 @@ export default async function EbaySettingsPage({ searchParams }: PageProps<"/set
           {sp.reason ? `: ${sp.reason}` : ""}
         </p>
       )}
+
+      <section className="card space-y-3 p-4">
+        <div className="flex items-center justify-between gap-2">
+          <h2 className="font-semibold">Which eBay</h2>
+          <span
+            className={`rounded-full px-3 py-1 text-xs font-bold ${env === "production" ? "bg-coral/15 text-coral" : "bg-ok/15 text-ok"}`}
+          >
+            {env === "production" ? "REAL EBAY" : env === "sandbox" ? "TEST EBAY" : "SAMPLE DATA"}
+          </span>
+        </div>
+        {me.role === "admin" ? (
+          <EbayModeForm env={env} publishing={mode.publishingSwitch} />
+        ) : (
+          <p className="text-sm text-muted">{envLabel[env]}</p>
+        )}
+      </section>
 
       <section className="card space-y-3 p-4">
         <h2 className="font-semibold">Connection</h2>
@@ -134,8 +153,9 @@ export default async function EbaySettingsPage({ searchParams }: PageProps<"/set
       <section className="card space-y-3 p-4">
         <h2 className="font-semibold">Listing defaults</h2>
         <p className="text-sm text-muted">
-          Publishing from the app is {env === "mock" ? "preview-only in mock mode" : writeEnabled() ? "on" : "off (EBAY_WRITE_ENABLED)"}. Best Offer is
-          always on; buyer pays shipping through her policies.
+          Publishing from the app is{" "}
+          {env === "mock" ? "preview-only (sample data)" : mode.canPublish ? <strong className="text-ok">on</strong> : `off: ${mode.publishOffReason}`} Best
+          Offer is always on; buyer pays shipping through her policies.
         </p>
         {policyError && <p className="text-sm text-danger">Couldn&apos;t load policies: {policyError}</p>}
         <EbaySettingsForm
