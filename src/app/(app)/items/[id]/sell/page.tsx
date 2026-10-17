@@ -9,12 +9,12 @@ import { SellForm } from "./sell-form";
 
 export const metadata: Metadata = { title: "Mark sold" };
 
-export default async function SellPage({ params }: PageProps<"/items/[id]/sell">) {
+export default async function SellPage({ params, searchParams }: PageProps<"/items/[id]/sell">) {
   await requireMember();
   const { id } = await params;
   const supabase = await createClient();
   const [{ data: item }, lookups, today] = await Promise.all([
-    supabase.from("items").select("id, title, cost, list_price").eq("id", id).maybeSingle(),
+    supabase.from("items").select("id, title, cost, list_price, ebay_ended_at").eq("id", id).maybeSingle(),
     getLookups(supabase),
     todayIso(),
   ]);
@@ -28,6 +28,7 @@ export default async function SellPage({ params }: PageProps<"/items/[id]/sell">
         listPrice={item.list_price === null ? null : Number(item.list_price)}
         platforms={lookups.platforms.filter((p) => p.code !== "other").concat(lookups.platforms.filter((p) => p.code === "other"))}
         today={today}
+        defaultPlatform={(await searchParams).elsewhere === "1" || item.ebay_ended_at ? "poshmark" : undefined}
       />
     </div>
   );

@@ -41,6 +41,7 @@ export async function ItemList({ mode, params }: { mode: "unlisted" | "listed"; 
   const trip = one(params, "trip");
   const sort = one(params, "sort") || (mode === "listed" ? "oldest" : "newest");
   const stale = one(params, "stale") === "1";
+  const ended = mode === "listed" && one(params, "ended") === "1";
   const limit = Math.min(Number(one(params, "limit")) || PAGE, 2000);
 
   const lookups = await getLookups(supabase);
@@ -57,6 +58,7 @@ export async function ItemList({ mode, params }: { mode: "unlisted" | "listed"; 
   if (category) query = query.eq("category", category);
   if (trip) query = query.eq("lot_code", trip);
   if (stale) query = query.gte("days_active", staleDays);
+  if (ended) query = query.not("ebay_ended_at", "is", null);
 
   if (mode === "listed") {
     if (sort === "newest") query = query.order("date_listed", { ascending: false, nullsFirst: false });
@@ -91,6 +93,7 @@ export async function ItemList({ mode, params }: { mode: "unlisted" | "listed"; 
         {kind && <input type="hidden" name="kind" value={kind} />}
         {drafted && <input type="hidden" name="stage" value="drafted" />}
         {stale && <input type="hidden" name="stale" value="1" />}
+        {ended && <input type="hidden" name="ended" value="1" />}
         {category && <input type="hidden" name="category" value={category} />}
         {trip && <input type="hidden" name="trip" value={trip} />}
         <button className="btn-small min-h-12 px-4">Search</button>
@@ -114,6 +117,14 @@ export async function ItemList({ mode, params }: { mode: "unlisted" | "listed"; 
             className={`chip shrink-0 ${stale ? "chip-active" : ""}`}
           >
             Stale ({staleDays}+ days)
+          </Link>
+        )}
+        {mode === "listed" && (
+          <Link
+            href={hrefWith(base, params, { ended: ended ? null : "1", limit: null })}
+            className={`chip shrink-0 ${ended ? "chip-active" : ""}`}
+          >
+            Ended on eBay
           </Link>
         )}
         <span className="mx-1 w-px shrink-0 bg-border" />

@@ -12,7 +12,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { ItemPhotos } from "./item-photos";
 import { StatusActions } from "./status-actions";
 import { EditItemForm } from "./edit-item-form";
-import { deleteItem } from "../actions";
+import { deleteItem, resolveEndedListing } from "../actions";
 import { ConfirmButton } from "@/components/fields";
 import { ListingCopy } from "@/components/listing-copy";
 import { ListingAssistant } from "./listing-assistant";
@@ -125,6 +125,30 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/ite
 
       {typeof (await searchParams).notice === "string" && (
         <p className="mb-4 rounded-xl bg-coral/10 px-4 py-3 text-sm font-medium text-coral">{(await searchParams).notice}</p>
+      )}
+
+      {status === "listed" && item.ebay_ended_at && (
+        <div className="mb-4 space-y-3 rounded-2xl border border-coral bg-coral/10 p-4">
+          <p className="text-sm">
+            <strong>This listing ended on eBay on {shortDate(item.ebay_ended_at.slice(0, 10))} without an eBay sale.</strong> Usually that
+            means FLYP took it down because it sold on another site.
+          </p>
+          <div className="flex flex-wrap gap-2">
+            <Link href={`/items/${item.id}/sell?elsewhere=1`} className="btn-primary min-h-10 px-4">
+              It sold on another site
+            </Link>
+            <form action={resolveEndedListing}>
+              <input type="hidden" name="id" value={item.id} />
+              <input type="hidden" name="status" value="unlisted" />
+              <button className="btn-small min-h-10">Still have it: back to inventory</button>
+            </form>
+            <form action={resolveEndedListing}>
+              <input type="hidden" name="id" value={item.id} />
+              <input type="hidden" name="status" value="discarded" />
+              <button className="btn-small min-h-10">Gave up on it</button>
+            </form>
+          </div>
+        </div>
       )}
 
       <div className="grid gap-6 md:grid-cols-2">

@@ -12,15 +12,17 @@ export function SellForm({
   listPrice,
   platforms,
   today,
+  defaultPlatform,
 }: {
   itemId: string;
   cost: number | null;
   listPrice: number | null;
   platforms: Platform[];
   today: string;
+  defaultPlatform?: string;
 }) {
   const [state, action] = useActionState(markSold, null);
-  const [platform, setPlatform] = useState(platforms[0]?.code ?? "ebay");
+  const [platform, setPlatform] = useState(defaultPlatform ?? platforms[0]?.code ?? "ebay");
   const [gross, setGross] = useState(listPrice ? String(listPrice) : "");
   const [shipping, setShipping] = useState("");
   const [fees, setFees] = useState("");

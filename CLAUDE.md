@@ -74,5 +74,9 @@ Insights = sales by month, trips, reports, expenses, taxes. `STAGE_STATUSES` in 
   so always read sales through `sales_view` (or filter `environment`). Taking a listed item down or selling it elsewhere
   calls `endListing()` (withdraws app-published offers; Seller Hub listings get a reminder). Conditions come from the
   category's allowed list (Metadata API) via `conditionFor()`. `npm run ebay:sandbox-setup` prepares a fresh test seller.
+- FLYP bridge: FLYP (her cross-lister) ends the eBay listing when an item sells on another site. `syncListings()` reads
+  her live listings hourly (Trading API GetMyeBaySelling, works for Seller Hub listings), links them to items (backfills
+  `ebay_item_id`, moves items listed elsewhere to Listed) and sets `items.ebay_ended_at` on listed items whose listing
+  vanished without an eBay order -> "Sold somewhere else?" on Home / Listed / the item page. Flags only after a full read.
 - Every eBay write is logged to `activity_log`. Buyer names/addresses are scrubbed 30 days after shipping.
 - AI goes through `suggestListing()`; it only fills fields. She accepts (item -> Ready to List); the AI never publishes.

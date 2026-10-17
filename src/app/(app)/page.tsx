@@ -21,7 +21,7 @@ export default async function HomePage() {
 
   const ebay = await ebayStatusAndAutoSync(member.workspace.id);
   const head = { count: "exact" as const, head: true };
-  const [trips, toList, drafted, listed, stale, toShip, late, completedThisMonth, unmatched, month] = await Promise.all([
+  const [trips, toList, drafted, listed, stale, toShip, late, completedThisMonth, unmatched, month, endedOnEbay] = await Promise.all([
     supabase.from("sources").select("id", head).gte("date", monthStart),
     supabase.from("items").select("id", head).in("status", ["intake", "unlisted"]),
     supabase.from("items").select("id", head).eq("status", "ready_to_list"),
@@ -37,6 +37,7 @@ export default async function HomePage() {
       .or(`date_sold.gte.${monthStart},date_exited.gte.${monthStart}`),
     supabase.from("sales_view").select("id", head).is("item_id", null),
     supabase.from("monthly_summary").select("sales_count, gross, adjusted_net").eq("month", monthStart).maybeSingle(),
+    supabase.from("items").select("id", head).eq("status", "listed").not("ebay_ended_at", "is", null),
   ]);
 
   const steps: Step[] = [
@@ -63,6 +64,11 @@ export default async function HomePage() {
   const attention = [
     ebay.expiresSoon && { href: "/settings/ebay", text: "eBay connection expires within 30 days. Reconnect.", tone: "text-danger" },
     ebay.lastError && { href: "/settings/ebay", text: `eBay sync failed: ${ebay.lastError.slice(0, 80)}`, tone: "text-danger" },
+    endedOnEbay.count && {
+      href: "/listed?ended=1",
+      text: `${endedOnEbay.count} listing${endedOnEbay.count === 1 ? "" : "s"} ended on eBay without an eBay sale. Sold somewhere else?`,
+      tone: "text-coral",
+    },
     late.count && { href: "/outgoing?sort=ship_by", text: `${late.count} order${late.count === 1 ? " is" : "s are"} past the ship-by date`, tone: "text-danger" },
     unmatched.count && { href: "/sold?unmatched=1", text: `${unmatched.count} sale${unmatched.count === 1 ? "" : "s"} not linked to an item`, tone: "text-coral" },
   ].filter(Boolean) as { href: string; text: string; tone: string }[];

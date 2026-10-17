@@ -23,6 +23,9 @@ export type SyncResult = {
   scrubbed: number;
   /** Set when actual fees couldn't be fetched this time (estimates stay until the next sync) */
   financesError?: string;
+  /** Live-listing watch results, when it ran */
+  listings?: ListingWatchResult;
+  listingsError?: string;
   preview?: { orderId: string; title: string; gross: number; matchedItem: string | null; status: string }[];
 };
 
@@ -329,6 +332,15 @@ export async function runEbaySync(env: EbayEnv, ws: string): Promise<SyncResult>
         result.financesError = e instanceof Error ? e.message : String(e);
       }
       result.scrubbed = await scrubShippedBuyerDetails();
+      // Live-listing watch (FLYP bridge) at most hourly; a failure here doesn't fail the order sync
+      const { data: st } = await db.from("ebay_sync_state").select("listings_synced_at").eq("workspace_id", ws).eq("environment", env).maybeSingle();
+      if (!st?.listings_synced_at || Date.now() - new Date(st.listings_synced_at).getTime() > 55 * 60_000) {
+        try {
+          result.listings = await syncListings(env, ws);
+        } catch (e) {
+          result.listingsError = e instanceof Error ? e.message : String(e);
+        }
+      }
       const summary = { ...result, preview: undefined };
       await db
         .from("ebay_sync_state")
@@ -350,4 +362,106 @@ export async function runEbaySync(env: EbayEnv, ws: string): Promise<SyncResult>
     }
     throw e;
   }
+}
+
+export type ListingWatchResult = { active: number; linked: number; movedToListed: number; ended: number; relisted: number };
+
+/**
+ * The FLYP bridge. FLYP ends the eBay listing when an item sells on another site, and the app never hears
+ * about that sale. So: snapshot her live eBay listings, link them to items, and flag listed items whose
+ * listing vanished without an eBay order ("ebay_ended_at"), for her to mark sold elsewhere in one tap.
+ */
+export async function syncListings(env: RealEnv, ws: string): Promise<ListingWatchResult> {
+  const db = createAdminClient();
+  const listings = await getEbayClient(env, ws).getActiveListings(); // throws on any failure: never flag on a partial read
+  const result: ListingWatchResult = { active: listings.length, linked: 0, movedToListed: 0, ended: 0, relisted: 0 };
+  const now = new Date().toISOString();
+
+  // All her items once (5k rows is nothing), matched in memory
+  type Row = { id: string; title: string; sku: string | null; status: string; ebay_item_id: string | null; ebay_ended_at: string | null; date_listed: string | null };
+  const items: Row[] = [];
+  for (let from = 0; ; from += 1000) {
+    const { data, error } = await db
+      .from("items")
+      .select("id, title, sku, status, ebay_item_id, ebay_ended_at, date_listed")
+      .eq("workspace_id", ws)
+      .range(from, from + 999);
+    if (error) throw new Error(error.message);
+    items.push(...((data ?? []) as Row[]));
+    if ((data ?? []).length < 1000) break;
+  }
+  const linkedBefore = items.filter((i) => i.ebay_item_id); // only these can be flagged as ended
+  const byListing = new Map(linkedBefore.map((i) => [i.ebay_item_id!, i]));
+  const bySku = new Map(items.filter((i) => i.sku).map((i) => [i.sku!, i]));
+  const rank = ["listed", "ready_to_list", "unlisted", "intake"];
+  const byTitle = new Map<string, Row[]>();
+  for (const i of items) {
+    if (i.ebay_item_id || !rank.includes(i.status)) continue;
+    const list = byTitle.get(i.title.trim()) ?? [];
+    list.push(i);
+    byTitle.set(i.title.trim(), list);
+  }
+  for (const list of byTitle.values()) list.sort((a, b) => rank.indexOf(a.status) - rank.indexOf(b.status));
+
+  const updates: { id: string; patch: Record<string, unknown> }[] = [];
+  const snapshot: Record<string, unknown>[] = [];
+  const claimed = new Set<string>();
+  for (const l of listings) {
+    let item = byListing.get(l.listingId) ?? (l.sku ? bySku.get(l.sku) : undefined);
+    if (!item) {
+      // Her VLOOKUP rule: exact title; each item can match only one listing
+      item = (byTitle.get(l.title.trim()) ?? []).find((i) => !claimed.has(i.id));
+    }
+    if (item) {
+      claimed.add(item.id);
+      const patch: Record<string, unknown> = {};
+      if (!item.ebay_item_id) {
+        patch.ebay_item_id = l.listingId;
+        result.linked++;
+      }
+      if (item.ebay_ended_at) {
+        patch.ebay_ended_at = null; // live again (relisted)
+        result.relisted++;
+      }
+      if (["intake", "unlisted", "ready_to_list"].includes(item.status)) {
+        // Listed on eBay some other way (eBay app, Seller Hub): it's Listed now
+        patch.status = "listed";
+        patch.date_listed = item.date_listed ?? localDate(l.startTime ?? now);
+        result.movedToListed++;
+      }
+      if (Object.keys(patch).length) updates.push({ id: item.id, patch });
+    }
+    snapshot.push({
+      workspace_id: ws,
+      environment: env,
+      listing_id: l.listingId,
+      title: l.title,
+      sku: l.sku,
+      price: l.price,
+      quantity_available: l.quantityAvailable,
+      start_time: l.startTime,
+      item_id: item?.id ?? null,
+      seen_at: now,
+    });
+  }
+
+  // Listed items whose eBay listing is gone and that didn't sell on eBay (an eBay sale would have made them "sold")
+  const activeIds = new Set(listings.map((l) => l.listingId));
+  for (const i of linkedBefore) {
+    if (i.status !== "listed" || i.ebay_ended_at || activeIds.has(i.ebay_item_id!)) continue;
+    updates.push({ id: i.id, patch: { ebay_ended_at: now } });
+    result.ended++;
+  }
+
+  // Write: item updates ten at a time, snapshot in batches
+  for (let k = 0; k < updates.length; k += 10) {
+    await Promise.all(updates.slice(k, k + 10).map((u) => db.from("items").update(u.patch).eq("id", u.id)));
+  }
+  for (let k = 0; k < snapshot.length; k += 500) {
+    const { error } = await db.from("ebay_active_listings").upsert(snapshot.slice(k, k + 500), { onConflict: "workspace_id,environment,listing_id" });
+    if (error) throw new Error(error.message);
+  }
+  await db.from("ebay_active_listings").delete().eq("workspace_id", ws).eq("environment", env).lt("seen_at", now);
+  await db.from("ebay_sync_state").upsert({ workspace_id: ws, environment: env, listings_synced_at: now }, { onConflict: "workspace_id,environment" });
+  return result;
 }

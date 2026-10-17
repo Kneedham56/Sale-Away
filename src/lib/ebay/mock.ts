@@ -1,6 +1,6 @@
 import "server-only";
 import type { EbayClient } from "./client";
-import type { Aspect, BrowseItem, CategorySuggestion, EbayOrder, EbayTransaction, InventoryItemPayload, OfferPayload, Policies } from "./types";
+import type { ActiveListing, Aspect, BrowseItem, CategorySuggestion, EbayOrder, EbayTransaction, InventoryItemPayload, OfferPayload, Policies } from "./types";
 
 const money = (v: number) => ({ value: v.toFixed(2), currency: "USD" });
 
@@ -127,6 +127,9 @@ export class MockEbayClient implements EbayClient {
   }
   async getUser() {
     return { userId: "mock-user", username: "mock_seller" };
+  }
+  async getActiveListings(): Promise<ActiveListing[]> {
+    return [];
   }
   async getOrders(): Promise<EbayOrder[]> {
     return mockOrders();

@@ -140,6 +140,8 @@ const EXIT_STATUSES: ItemStatus[] = ["donated", "damaged", "kept", "discarded"];
 
 /** When an item leaves Listed without selling on eBay, take it off eBay too (or say how). */
 async function takeOffEbay(supabase: Db, itemId: string): Promise<string | null> {
+  const { data: it } = await supabase.from("items").select("ebay_ended_at").eq("id", itemId).single();
+  if (it?.ebay_ended_at) return null; // already off eBay (e.g. FLYP ended it)
   const me = await requireMember();
   const mode = await ebayModeFor(me.workspace.id);
   const r = await endListing(supabase, itemId, mode.env, mode.canPublish, me.userId, me.workspace.id);
@@ -324,4 +326,9 @@ export async function markSold(_prev: unknown, fd: FormData): Promise<ActionResu
     redirect(`/items/${result.data.itemId}${result.data.note ? `?notice=${encodeURIComponent(result.data.note)}` : ""}`);
   }
   return result.ok ? { ok: true } : result;
+}
+
+/** One tap on an "ended on eBay" item: back to inventory, or gave up. (Sold elsewhere goes through Mark sold.) */
+export async function resolveEndedListing(fd: FormData): Promise<void> {
+  await changeStatus(null, fd);
 }

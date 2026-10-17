@@ -55,6 +55,16 @@ export type EbayTransaction = {
   orderLineItems?: { lineItemId: string; marketplaceFees?: { feeType: string; amount: Money }[] }[];
 };
 
+/** One of her live eBay listings (any listing, including ones made in Seller Hub or the eBay app) */
+export type ActiveListing = {
+  listingId: string;
+  title: string;
+  sku: string | null;
+  price: number | null;
+  quantityAvailable: number | null;
+  startTime: string | null;
+};
+
 export type BrowseItem = { title: string; price: number; url: string; condition?: string };
 
 export type CategorySuggestion = { categoryId: string; categoryName: string; path: string };

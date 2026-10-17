@@ -39,6 +39,14 @@ export function SyncButton({ env }: { env: string }) {
             {result.orders} orders · {result.lines} lines · {result.matched} matched · {result.unmatched.length} unmatched
             {!result.dryRun && ` · ${result.inserted} new · ${result.updated} updated · ${result.feesUpdated} fee updates`}
           </p>
+          {result.listings && (
+            <p className="mt-1 text-xs text-muted">
+              Live listings: {result.listings.active} on eBay · {result.listings.linked} newly linked to items
+              {result.listings.movedToListed ? ` · ${result.listings.movedToListed} moved to Listed` : ""}
+              {result.listings.ended ? ` · ${result.listings.ended} ended without an eBay sale` : ""}
+            </p>
+          )}
+          {result.listingsError && <p className="mt-1 text-xs text-coral">Couldn&apos;t read live listings: {result.listingsError}</p>}
           {result.financesError && (
             <p className="mt-1 text-xs text-coral">Orders synced, but eBay&apos;s fee service didn&apos;t answer ({result.financesError}). Fees stay estimated until the next sync.</p>
           )}

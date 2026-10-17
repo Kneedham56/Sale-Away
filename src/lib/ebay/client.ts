@@ -2,6 +2,7 @@ import "server-only";
 import { credentials, ebayEnv, hasCredentials, hosts, MARKETPLACE, SCOPES, type EbayEnv } from "./config";
 import { getUserAccessToken } from "./tokens";
 import type {
+  ActiveListing,
   Aspect,
   BrowseItem,
   CategorySuggestion,
@@ -25,6 +26,8 @@ export interface EbayClient {
   // Seller calls (need her connected account)
   getUser(): Promise<{ userId: string; username: string }>;
   getOrders(modifiedSince: string): Promise<EbayOrder[]>;
+  /** All her live listings (Trading API GetMyeBaySelling, 200 per page) */
+  getActiveListings(): Promise<ActiveListing[]>;
   getTransactions(since: string): Promise<EbayTransaction[]>;
   getPolicies(): Promise<Policies>;
   ensureLocation(key: string, postalCode: string): Promise<void>;
@@ -171,6 +174,55 @@ class RestEbayClient implements EbayClient {
       out.push(...(data.orders ?? []));
       if (!data.orders?.length || out.length >= (data.total ?? 0)) return out;
     }
+  }
+
+  async getActiveListings(): Promise<ActiveListing[]> {
+    // The REST Inventory API only sees listings it created; her Seller Hub listings need the Trading API
+    const token = await getUserAccessToken(this.env, this.workspaceId!);
+    const out: ActiveListing[] = [];
+    const tag = (xml: string, name: string) => xml.match(new RegExp(`<${name}[^>]*>([^<]*)</${name}>`))?.[1] ?? null;
+    const unescape = (s: string) => s.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+    for (let page = 1; page <= 200; page++) {
+      const body = `<?xml version="1.0" encoding="utf-8"?>
+<GetMyeBaySellingRequest xmlns="urn:ebay:apis:eBLBaseComponents">
+  <ActiveList><Include>true</Include><Pagination><EntriesPerPage>200</EntriesPerPage><PageNumber>${page}</PageNumber></Pagination></ActiveList>
+  <DetailLevel>ReturnAll</DetailLevel>
+</GetMyeBaySellingRequest>`;
+      const res = await fetch(`${hosts(this.env).api}/ws/api.dll`, {
+        method: "POST",
+        headers: {
+          "X-EBAY-API-IAF-TOKEN": token,
+          "X-EBAY-API-CALL-NAME": "GetMyeBaySelling",
+          "X-EBAY-API-SITEID": "0",
+          "X-EBAY-API-COMPATIBILITY-LEVEL": "1371",
+          "Content-Type": "text/xml",
+        },
+        body,
+      });
+      const xml = await res.text();
+      const ack = tag(xml, "Ack");
+      if (!res.ok || (ack !== "Success" && ack !== "Warning")) {
+        throw new EbayError(`eBay listings: ${tag(xml, "LongMessage") ?? `HTTP ${res.status}`}`, res.status, xml.slice(0, 500));
+      }
+      const active = xml.match(/<ActiveList>([\s\S]*?)<\/ActiveList>/)?.[1] ?? "";
+      for (const m of active.matchAll(/<Item>([\s\S]*?)<\/Item>/g)) {
+        const it = m[1];
+        const id = tag(it, "ItemID");
+        if (!id) continue;
+        const price = tag(it, "CurrentPrice") ?? tag(it, "BuyItNowPrice");
+        out.push({
+          listingId: id,
+          title: unescape(tag(it, "Title") ?? ""),
+          sku: tag(it, "SKU") ? unescape(tag(it, "SKU")!) : null,
+          price: price === null ? null : Number(price),
+          quantityAvailable: tag(it, "QuantityAvailable") === null ? null : Number(tag(it, "QuantityAvailable")),
+          startTime: tag(it, "StartTime"),
+        });
+      }
+      const pages = Number(active.match(/<TotalNumberOfPages>(\d+)<\/TotalNumberOfPages>/)?.[1] ?? 1);
+      if (page >= pages) break;
+    }
+    return out;
   }
 
   async getTransactions(since: string): Promise<EbayTransaction[]> {
