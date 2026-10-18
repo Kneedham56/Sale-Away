@@ -283,10 +283,12 @@ export async function syncFinances(env: RealEnv, ws: string, opts: { since?: str
     const labels = sum(tx.filter((t) => t.transaction_type === "SHIPPING_LABEL" && t.booking_entry === "DEBIT"));
     const refunds = sum(tx.filter((t) => t.transaction_type === "REFUND" && t.booking_entry === "DEBIT"));
     const orderFee = saleTx.filter((t) => !t.line_item_id).reduce((s, t) => s + Number(t.fee_amount ?? 0), 0);
+    // Promoted Listings ad fees are charged per order as non-sale charges: they're part of what the sale cost her
+    const adFees = sum(tx.filter((t) => t.transaction_type === "NON_SALE_CHARGE" && t.booking_entry === "DEBIT"));
 
     for (const [idx, sale] of sales.entries()) {
       const lineFee = saleTx.filter((t) => t.line_item_id === sale.line_item_id).reduce((s, t) => s + Number(t.fee_amount ?? 0), 0);
-      const fees = Math.round((lineFee || orderFee / sales.length) * 100) / 100;
+      const fees = Math.round(((lineFee || orderFee / sales.length) + (idx === 0 ? adFees : 0)) * 100) / 100;
       const patch: Record<string, unknown> = {};
       if (saleTx.length) Object.assign(patch, { fees, fee_is_estimate: false, fee_rate: null });
       // Order-level costs go on the first line so they're counted once

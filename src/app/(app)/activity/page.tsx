@@ -8,6 +8,11 @@ export const metadata: Metadata = { title: "Activity" };
 
 const LABELS: Record<string, string> = {
   "ebay.connected": "Connected eBay",
+  "ebay.connect_started": "Started connecting eBay",
+  "ebay.connect_declined": "eBay sign-in cancelled",
+  "ebay.connect_failed": "Connecting eBay failed",
+  "ebay.mode_changed": "Changed eBay mode",
+  "ebay.offer.withdraw": "Ended listing on eBay",
   "ebay.disconnected": "Disconnected eBay",
   "ebay.inventory_item.put": "Saved listing details on eBay",
   "ebay.offer.upsert": "Saved price and policies on eBay",
@@ -44,6 +49,7 @@ export default async function ActivityPage() {
                 {r.detail?.sku && ` · SKU ${r.detail.sku}`}
                 {r.detail?.listingId && ` · listing ${r.detail.listingId}`}
                 {r.detail?.error && <span className="text-danger"> · {String(r.detail.error)}</span>}
+                {r.detail?.reason && <span className="text-danger"> · {String(r.detail.reason)}</span>}
               </div>
             </li>
           ))}

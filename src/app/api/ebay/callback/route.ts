@@ -15,15 +15,28 @@ export async function GET(request: NextRequest) {
   if (!member) return NextResponse.redirect(new URL("/login", request.url));
 
   const params = request.nextUrl.searchParams;
-  if (params.get("error")) return back(`ebay=declined`);
+  // Every outcome goes in the Activity log, so a failed connect can be diagnosed later
+  const record = async (action: string, detail: Record<string, unknown>) =>
+    createAdminClient()
+      .from("activity_log")
+      .insert({ workspace_id: member.workspace.id, actor: member.userId, action, detail })
+      .then(() => undefined, () => undefined);
+  if (params.get("error")) {
+    await record("ebay.connect_declined", { error: params.get("error"), description: params.get("error_description") });
+    return back(`ebay=declined`);
+  }
   let saved: { state: string; env: "sandbox" | "production"; scopes: string[]; workspaceId: string };
   try {
     saved = JSON.parse(request.cookies.get("ebay_oauth")?.value ?? "");
   } catch {
+    await record("ebay.connect_failed", { reason: "sign-in took too long or cookie missing" });
     return back("ebay=expired");
   }
   const code = params.get("code");
-  if (!code || params.get("state") !== saved.state) return back("ebay=bad-state");
+  if (!code || params.get("state") !== saved.state) {
+    await record("ebay.connect_failed", { reason: "state mismatch" });
+    return back("ebay=bad-state");
+  }
   if (!member.workspaces.some((w) => w.id === saved.workspaceId)) return back("ebay=bad-state");
 
   try {
@@ -44,6 +57,7 @@ export async function GET(request: NextRequest) {
     return back(`ebay=connected&env=${saved.env}`);
   } catch (e) {
     console.error(e);
+    await record("ebay.connect_failed", { environment: saved.env, reason: e instanceof Error ? e.message.slice(0, 300) : String(e) });
     return back(`ebay=failed&reason=${encodeURIComponent(e instanceof Error ? e.message.slice(0, 200) : "unknown")}`);
   }
 }
