@@ -10,12 +10,15 @@ export function ListOnEbay({
   listPrice,
   env,
   problems,
+  connected,
 }: {
   itemId: string;
   listPrice: number | null;
   env: string;
   /** What still blocks publishing (price is handled here, so it's not in this list) */
   problems: string[];
+  /** Her business's eBay account is connected (with listing permission) */
+  connected: boolean;
 }) {
   const [open, setOpen] = useState(false);
   const [price, setPrice] = useState(listPrice === null ? "" : String(listPrice));
@@ -42,6 +45,21 @@ export function ListOnEbay({
       <button type="button" className="btn-primary w-full bg-coral" onClick={() => setOpen(true)}>
         {label}
       </button>
+    );
+  }
+
+  if (!connected) {
+    return (
+      <div className="card space-y-2 border-coral p-4">
+        <h3 className="font-semibold">{label}</h3>
+        <p className="text-sm">Sale Away needs to be signed in to your eBay first. It only takes a minute, then come back here.</p>
+        <a href="/settings/ebay" className="btn-primary w-full">
+          Connect eBay
+        </a>
+        <button type="button" className="w-full text-sm text-muted" onClick={() => setOpen(false)}>
+          Cancel
+        </button>
+      </div>
     );
   }
 

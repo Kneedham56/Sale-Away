@@ -141,7 +141,8 @@ export function EditItemForm({ item, lookups, today }: { item: EditableItem; loo
       </Field>
 
       {state && !state.ok && <p className="text-sm text-danger">{state.error}</p>}
-      {state?.ok && <p className="text-sm font-medium text-ok">Saved.</p>}
+      {state?.ok && !state.data && <p className="text-sm font-medium text-ok">Saved.</p>}
+      {state?.ok && state.data && <p className="rounded-xl bg-coral/10 px-3 py-2 text-sm text-coral">{state.data}</p>}
       <SubmitButton>Save changes</SubmitButton>
     </form>
   );

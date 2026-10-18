@@ -50,7 +50,7 @@ export function StatusActions({
         )}
         {isActive && (
           <button className={listedViaEbay ? "btn-small min-h-11" : "btn-secondary min-h-11 px-4"} onClick={() => toggle("list")}>
-            {listedViaEbay ? "Already listed? Mark listed" : "Mark listed"}
+            {listedViaEbay ? "I listed it on eBay myself" : "Mark listed"}
           </button>
         )}
         {isListed && (
@@ -89,11 +89,19 @@ export function StatusActions({
           <Field label="Storage spot">
             <input name="storage_location" className="input" list="storage-locations" defaultValue={item.storage_location ?? ""} />
           </Field>
+          {listedViaEbay && (
+            <Field label="eBay item number" hint="The long number in the listing's web address, so sales and changes stay matched.">
+              <input name="ebay_item_id" className="input" inputMode="numeric" placeholder="e.g. 205612345678" />
+            </Field>
+          )}
           <datalist id="storage-locations">
             {storageLocations.map((l) => (
               <option key={l} value={l} />
             ))}
           </datalist>
+          {listedViaEbay && (
+            <p className="text-xs text-muted">This only updates Sale Away. To post it from here, use List on eBay instead.</p>
+          )}
           <SubmitButton>Mark listed</SubmitButton>
         </form>
       )}
@@ -144,6 +152,7 @@ export function StatusActions({
 
       {statusState && !statusState.ok && <p className="text-sm text-danger">{statusState.error}</p>}
       {statusState?.ok && statusState.data && <p className="rounded-xl bg-coral/10 px-3 py-2 text-sm text-coral">{statusState.data}</p>}
+      {logState?.ok && logState.data && <p className="rounded-xl bg-coral/10 px-3 py-2 text-sm text-coral">{logState.data}</p>}
     </div>
   );
 }

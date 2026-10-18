@@ -62,7 +62,9 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/ite
     mode.env === "mock"
       ? { data: { environment: "mock" } }
       : await createAdminClient().from("ebay_connection").select("environment").eq("workspace_id", me.workspace.id).eq("environment", mode.env).maybeSingle();
-  const canList = mode.canPublish && !!conn && ["intake", "unlisted", "ready_to_list"].includes(item.status);
+  // Her business may post: show List on eBay (asking her to connect first if she isn't)
+  const canList = mode.canPublish && ["intake", "unlisted", "ready_to_list"].includes(item.status);
+  const connected = !!conn;
   const listProblems = canList
     ? [
         ...checkReady(item, (photos ?? []).length, (lookups.settings.ebay_policies ?? {}) as PolicyDefaults).problems.filter(
@@ -185,7 +187,9 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/ite
             </div>
           )}
 
-          {canList && <ListOnEbay itemId={item.id} listPrice={item.list_price} env={mode.env} problems={listProblems} />}
+          {canList && (
+            <ListOnEbay itemId={item.id} listPrice={item.list_price} env={mode.env} problems={listProblems} connected={connected} />
+          )}
 
           <StatusActions
             listedViaEbay={canList}
@@ -232,7 +236,7 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/ite
             latest={latestRun}
             hasPhotos={(photos ?? []).length > 0}
             geminiAvailable={!!process.env.GEMINI_API_KEY}
-            listOnEbay={canList ? { env: mode.env } : null}
+            listOnEbay={canList && connected ? { env: mode.env } : null}
           />
         </div>
       )}

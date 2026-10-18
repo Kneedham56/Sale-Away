@@ -37,6 +37,11 @@ export interface EbayClient {
   publishOffer(offerId: string): Promise<string>;
   /** Ends a live listing created by the app (Inventory API offer) */
   withdrawOffer(offerId: string): Promise<void>;
+  /** Change price on a listing the app published (Inventory API offer) */
+  updateOfferPrice(offerId: string, sku: string, price: number): Promise<void>;
+  /** Listings made in Seller Hub / the eBay app (Trading API): change price or title, or end it */
+  reviseLegacyListing(listingId: string, changes: { price?: number; title?: string }): Promise<void>;
+  endLegacyListing(listingId: string): Promise<void>;
 }
 
 export class EbayError extends Error {
@@ -337,6 +342,63 @@ class RestEbayClient implements EbayClient {
 
   async withdrawOffer(offerId: string): Promise<void> {
     await this.call(`/sell/inventory/v1/offer/${offerId}/withdraw`, { user: true, method: "POST" });
+  }
+
+  async updateOfferPrice(offerId: string, sku: string, price: number): Promise<void> {
+    const { data } = await this.call<{ responses?: { statusCode: number; errors?: { message: string }[] }[] }>(
+      "/sell/inventory/v1/bulk_update_price_quantity",
+      {
+        user: true,
+        method: "POST",
+        body: { requests: [{ sku, offers: [{ offerId, availableQuantity: 1, price: { value: price.toFixed(2), currency: "USD" } }] }] },
+      }
+    );
+    const bad = data.responses?.find((r) => r.statusCode >= 300);
+    if (bad) throw new EbayError(`eBay: ${bad.errors?.[0]?.message ?? "price update failed"}`, bad.statusCode, data);
+  }
+
+  /** One Trading API (XML) call; listings made outside the Inventory API can only be changed this way. */
+  private async trading(callName: string, inner: string): Promise<string> {
+    const token = await getUserAccessToken(this.env, this.workspaceId!);
+    const res = await fetch(`${hosts(this.env).api}/ws/api.dll`, {
+      method: "POST",
+      headers: {
+        "X-EBAY-API-IAF-TOKEN": token,
+        "X-EBAY-API-CALL-NAME": callName,
+        "X-EBAY-API-SITEID": "0",
+        "X-EBAY-API-COMPATIBILITY-LEVEL": "1371",
+        "Content-Type": "text/xml",
+      },
+      body: `<?xml version="1.0" encoding="utf-8"?><${callName}Request xmlns="urn:ebay:apis:eBLBaseComponents">${inner}</${callName}Request>`,
+    });
+    const xml = await res.text();
+    const ack = xml.match(/<Ack>(\w+)<\/Ack>/)?.[1];
+    if (!res.ok || (ack !== "Success" && ack !== "Warning")) {
+      const code = xml.match(/<ErrorCode>(\d+)<\/ErrorCode>/)?.[1];
+      const msg = xml.match(/<LongMessage>([^<]+)<\/LongMessage>/)?.[1] ?? `HTTP ${res.status}`;
+      throw new EbayError(`eBay: ${msg}`, Number(code) || res.status, xml.slice(0, 500));
+    }
+    return xml;
+  }
+
+  async reviseLegacyListing(listingId: string, changes: { price?: number; title?: string }): Promise<void> {
+    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
+    const parts = [
+      `<ItemID>${esc(listingId)}</ItemID>`,
+      changes.price !== undefined ? `<StartPrice>${changes.price.toFixed(2)}</StartPrice>` : "",
+      changes.title ? `<Title>${esc(changes.title.slice(0, 80))}</Title>` : "",
+    ];
+    await this.trading("ReviseFixedPriceItem", `<Item>${parts.join("")}</Item>`);
+  }
+
+  async endLegacyListing(listingId: string): Promise<void> {
+    try {
+      await this.trading("EndFixedPriceItem", `<ItemID>${listingId}</ItemID><EndingReason>NotAvailable</EndingReason>`);
+    } catch (e) {
+      // 1047 = already ended (e.g. FLYP got there first): that's the outcome we wanted
+      if (e instanceof EbayError && e.status === 1047) return;
+      throw e;
+    }
   }
 }
 

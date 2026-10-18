@@ -9,7 +9,7 @@ import { todayIso } from "@/lib/dates";
 import { PHOTO_BUCKET } from "@/lib/photos";
 import { attempt, bool, FormError, isoDate, number, requiredText, text, type ActionResult } from "@/lib/form";
 import type { ItemStatus } from "@/lib/format";
-import { endListing } from "@/lib/ebay/publish";
+import { endListing, reviseListing } from "@/lib/ebay/publish";
 import { ebayModeFor } from "@/lib/ebay/mode";
 
 export type NewPhoto = { storage_path: string; jpeg_path: string | null; thumb_path: string | null };
@@ -98,13 +98,14 @@ export async function createItem(
   });
 }
 
-export async function updateItem(_prev: unknown, fd: FormData): Promise<ActionResult> {
+/** Returns a note when eBay couldn't be updated and she needs to change it there. */
+export async function updateItem(_prev: unknown, fd: FormData): Promise<ActionResult<string | null>> {
   return attempt(async () => {
     const supabase = await db();
     const id = requiredText(fd, "id", "Item id");
     const fields = itemFields(fd);
     const source_id = await resolveSource(supabase, fd);
-    const before = must(await supabase.from("items").select("list_price").eq("id", id).single());
+    const before = must(await supabase.from("items").select("list_price, title, status").eq("id", id).single());
     must(
       await supabase
         .from("items")
@@ -132,7 +133,16 @@ export async function updateItem(_prev: unknown, fd: FormData): Promise<ActionRe
       });
     }
     await rememberLookups(supabase, fields.category, fields.storage_location);
+    // Keep the live eBay listing in step with what she just changed
+    const note =
+      before.status === "listed"
+        ? await syncToEbay(supabase, id, {
+            price: fields.list_price !== null && fields.list_price !== oldPrice ? fields.list_price : undefined,
+            title: fields.title !== before.title ? fields.title : undefined,
+          })
+        : null;
     refresh();
+    return note;
   });
 }
 
@@ -146,6 +156,14 @@ async function takeOffEbay(supabase: Db, itemId: string): Promise<string | null>
   const mode = await ebayModeFor(me.workspace.id);
   const r = await endListing(supabase, itemId, mode.env, mode.canPublish, me.userId, me.workspace.id);
   return r.note;
+}
+
+/** Price / title change on a listed item: send it to the live eBay listing too. */
+async function syncToEbay(supabase: Db, itemId: string, changes: { price?: number; title?: string }): Promise<string | null> {
+  if (changes.price === undefined && !changes.title) return null;
+  const me = await requireMember();
+  const mode = await ebayModeFor(me.workspace.id);
+  return reviseListing(supabase, itemId, changes, mode.env, mode.canPublish, me.userId, me.workspace.id);
 }
 const ACTIVE_STATUSES: ItemStatus[] = ["intake", "unlisted", "ready_to_list", "listed"];
 
@@ -165,6 +183,12 @@ export async function changeStatus(_prev: unknown, fd: FormData): Promise<Action
       if (price !== null) patch.list_price = price;
       const loc = text(fd, "storage_location");
       if (loc) patch.storage_location = loc;
+      const ebayId = text(fd, "ebay_item_id");
+      if (ebayId) {
+        if (!/^\d{9,15}$/.test(ebayId)) throw new FormError("The eBay item number is the long number in the listing's web address.");
+        patch.ebay_item_id = ebayId;
+        patch.ebay_ended_at = null;
+      }
       await rememberLookups(supabase, null, loc);
     }
     if (EXIT_STATUSES.includes(status)) patch.date_exited = today;
@@ -190,13 +214,15 @@ export async function changeStatus(_prev: unknown, fd: FormData): Promise<Action
       new_value: status,
       note: text(fd, "note"),
     });
-    const note = EXIT_STATUSES.includes(status) && before.status === "listed" ? await takeOffEbay(supabase, id) : null;
+    // Leaving Listed without selling (taken down, or back to inventory): end the eBay listing too
+    const leavingListed = before.status === "listed" && (EXIT_STATUSES.includes(status) || ["intake", "unlisted", "ready_to_list"].includes(status));
+    const note = leavingListed ? await takeOffEbay(supabase, id) : null;
     refresh();
     return note;
   });
 }
 
-export async function logItemEvent(_prev: unknown, fd: FormData): Promise<ActionResult> {
+export async function logItemEvent(_prev: unknown, fd: FormData): Promise<ActionResult<string | null>> {
   return attempt(async () => {
     const supabase = await db();
     const id = requiredText(fd, "id", "Item id");
@@ -211,8 +237,12 @@ export async function logItemEvent(_prev: unknown, fd: FormData): Promise<Action
     if (/^relist/i.test(action)) {
       must(await supabase.from("items").update({ date_listed: await todayIso() }).eq("id", id));
     }
+    let note: string | null = null;
     if (/^removed/i.test(action)) {
+      note = await takeOffEbay(supabase, id);
       must(await supabase.from("items").update({ status: "unlisted" }).eq("id", id));
+    } else if (newPrice !== null && old_value !== String(newPrice)) {
+      note = await syncToEbay(supabase, id, { price: newPrice });
     }
     must(
       await supabase.from("item_events").insert({
@@ -224,6 +254,7 @@ export async function logItemEvent(_prev: unknown, fd: FormData): Promise<Action
       })
     );
     refresh();
+    return note;
   });
 }
 

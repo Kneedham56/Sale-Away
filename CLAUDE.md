@@ -72,7 +72,9 @@ Insights = sales by month, trips, reports, expenses, taxes. `STAGE_STATUSES` in 
 - All eBay calls go through `getEbayClient(env, workspaceId)`. Mock never writes her data
   (sync and publish are previews); sandbox sales are stored with `environment = 'sandbox'` and excluded by `sales_view`,
   so always read sales through `sales_view` (or filter `environment`). Taking a listed item down or selling it elsewhere
-  calls `endListing()` (withdraws app-published offers; Seller Hub listings get a reminder). Conditions come from the
+  calls `endListing()`, and price/title edits on a listed item call `reviseListing()`; both handle app-posted listings
+  (Inventory API) and her Seller Hub listings (Trading API: ReviseFixedPriceItem / EndFixedPriceItem) via `items.ebay_item_id`.
+  Manual "Mark listed" never posts; List on eBay does. Conditions come from the
   category's allowed list (Metadata API) via `conditionFor()`. `npm run ebay:sandbox-setup` prepares a fresh test seller.
 - FLYP bridge: FLYP (her cross-lister) ends the eBay listing when an item sells on another site. `syncListings()` reads
   her live listings hourly (Trading API GetMyeBaySelling, works for Seller Hub listings), links them to items (backfills

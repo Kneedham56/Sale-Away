@@ -161,4 +161,7 @@ export class MockEbayClient implements EbayClient {
     return `mock-listing-${offerId.replace("mock-offer-", "")}`;
   }
   async withdrawOffer() {}
+  async updateOfferPrice() {}
+  async reviseLegacyListing() {}
+  async endLegacyListing() {}
 }
