@@ -59,3 +59,13 @@ test("sold search link drops FLAW and keeps 8 words", () => {
   assert.ok(url.includes("LH_Sold=1"));
   assert.ok(!decodeURIComponent(url).includes("FLAW"));
 });
+
+import { bestMatch, words } from "../src/lib/similar";
+test("cleanup matching finds a retitled listing", () => {
+  const cands = [
+    { value: "a", words: words("Express Trench Coat Small Pink Double Breasted Belted Lined") },
+    { value: "b", words: words("Pottery Barn Toddler Dinosaur Costume Triceratops") },
+  ];
+  assert.equal(bestMatch("Express Trench Coat Womens Small Pink Double Breasted Belt Lined Long", cands)?.value, "a");
+  assert.equal(bestMatch("Hello Kitty Plush Mascot", cands), null);
+});

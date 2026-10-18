@@ -11,6 +11,7 @@ const SECTIONS = [
   {
     title: "Workflow",
     links: [
+      ["/cleanup", "One-time cleanup", "Tidy up listings and answer a few questions"],
       ["/trips", "1 · Trips", "Log a sourcing trip, then add what you bought"],
       ["/unlisted", "2 · Inventory", "Bought but not listed yet (To list · Drafted)"],
       ["/listed", "3 · Listed", "Live listings; take down the stale ones"],

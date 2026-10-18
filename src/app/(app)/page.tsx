@@ -21,7 +21,7 @@ export default async function HomePage() {
 
   const ebay = await ebayStatusAndAutoSync(member.workspace.id);
   const head = { count: "exact" as const, head: true };
-  const [trips, toList, drafted, listed, stale, toShip, late, completedThisMonth, unmatched, month, endedOnEbay] = await Promise.all([
+  const [trips, toList, drafted, listed, stale, toShip, late, completedThisMonth, unmatched, month, endedOnEbay, cleanupApp, cleanupEbay] = await Promise.all([
     supabase.from("sources").select("id", head).gte("date", monthStart),
     supabase.from("items").select("id", head).in("status", ["intake", "unlisted"]),
     supabase.from("items").select("id", head).eq("status", "ready_to_list"),
@@ -38,7 +38,11 @@ export default async function HomePage() {
     supabase.from("sales_view").select("id", head).is("item_id", null),
     supabase.from("monthly_summary").select("sales_count, gross, adjusted_net").eq("month", monthStart).maybeSingle(),
     supabase.from("items").select("id", head).eq("status", "listed").not("ebay_ended_at", "is", null),
+    // Temporary: one-time cleanup after connecting eBay (see /cleanup)
+    supabase.from("items").select("id", head).eq("status", "listed").is("ebay_item_id", null),
+    supabase.from("ebay_active_listings").select("listing_id", head).is("item_id", null),
   ]);
+  const cleanupLeft = (cleanupApp.count ?? 0) + (cleanupEbay.count ?? 0);
 
   const steps: Step[] = [
     { n: 1, href: "/trips", label: "Trips", value: trips.count, detail: "this month" },
@@ -62,6 +66,7 @@ export default async function HomePage() {
   ];
 
   const attention = [
+    cleanupLeft > 0 && { href: "/cleanup", text: `Finish the one-time cleanup (${cleanupLeft.toLocaleString()} to go)`, tone: "text-accent" },
     ebay.expiresSoon && { href: "/settings/ebay", text: "eBay connection expires within 30 days. Reconnect.", tone: "text-danger" },
     ebay.lastError && { href: "/settings/ebay", text: `eBay sync failed: ${ebay.lastError.slice(0, 80)}`, tone: "text-danger" },
     endedOnEbay.count && {
