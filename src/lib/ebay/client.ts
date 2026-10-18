@@ -74,6 +74,8 @@ export async function getAppToken(env: Exclude<EbayEnv, "mock">): Promise<string
   return body.access_token;
 }
 
+const policyCache = new Map<string, { at: number; value: Policies }>();
+
 // ---------------------------------------------------------------------------
 // REST implementation (sandbox and production)
 // ---------------------------------------------------------------------------
@@ -250,10 +252,23 @@ class RestEbayClient implements EbayClient {
         { user: true }
       );
       const list = data[`${kind}Policies`] ?? [];
-      return list.map((p) => ({ id: String(p[`${kind}PolicyId`]), name: p.name, description: p.description }));
+      return list.map((p) => {
+        const options = (p.shippingOptions as { costType?: string }[] | undefined) ?? [];
+        return {
+          id: String(p[`${kind}PolicyId`]),
+          name: p.name,
+          description: p.description,
+          needsPackage: options.some((o) => o.costType === "CALCULATED"),
+        };
+      });
     };
+    // Policies rarely change: keep them for 10 minutes instead of 3 eBay calls on every item page
+    const cached = policyCache.get(`${this.env}:${this.workspaceId}`);
+    if (cached && cached.at > Date.now() - 10 * 60_000) return cached.value;
     const [fulfillment, payment, ret] = await Promise.all([get("fulfillment"), get("payment"), get("return")]);
-    return { fulfillment, payment, return: ret };
+    const value = { fulfillment, payment, return: ret };
+    policyCache.set(`${this.env}:${this.workspaceId}`, { at: Date.now(), value });
+    return value;
   }
 
   async ensureLocation(key: string, postalCode: string): Promise<void> {

@@ -68,17 +68,37 @@ export async function saveEbaySettings(_prev: unknown, fd: FormData): Promise<Ac
 }
 
 /** Publishes one reviewed item. Mock mode returns a preview; sandbox never changes her real item. */
-export async function publishToEbay(itemId: string, price?: number | null): Promise<ActionResult<PublishResult>> {
+export type ListingChoices = {
+  shippingPolicyId?: string | null;
+  returnPolicyId?: string | null;
+  weightOz?: number | null;
+  lengthIn?: number | null;
+  widthIn?: number | null;
+  heightIn?: number | null;
+};
+
+export async function publishToEbay(itemId: string, price?: number | null, choices?: ListingChoices): Promise<ActionResult<PublishResult>> {
   return attempt(async () => {
     const me = await requireMember();
     const mode = await ebayModeFor(me.workspace.id);
     if (!mode.canPublish) throw new FormError(mode.publishOffReason ?? "Publishing is off.");
     const env = mode.env;
     const supabase = await createClient();
+    const patch: Record<string, unknown> = {};
     if (price !== undefined && price !== null) {
       if (!(price > 0)) throw new FormError("Enter a price above $0.");
-      await supabase.from("items").update({ list_price: Math.round(price * 100) / 100 }).eq("id", itemId);
+      patch.list_price = Math.round(price * 100) / 100;
     }
+    if (choices) {
+      if (choices.shippingPolicyId !== undefined) patch.shipping_policy_id = choices.shippingPolicyId || null;
+      if (choices.returnPolicyId !== undefined) patch.return_policy_id = choices.returnPolicyId || null;
+      const num = (n: number | null | undefined) => (n === undefined ? undefined : n && n > 0 ? Math.round(n * 100) / 100 : null);
+      for (const [key, v] of [["weight_oz", choices.weightOz], ["length_in", choices.lengthIn], ["width_in", choices.widthIn], ["height_in", choices.heightIn]] as const) {
+        const n = num(v);
+        if (n !== undefined) patch[key] = n;
+      }
+    }
+    if (Object.keys(patch).length) await supabase.from("items").update(patch).eq("id", itemId);
     const result = await publishItem(supabase, itemId, env, me.userId, me.workspace.id);
     if (!result.dryRun) refresh();
     return result;

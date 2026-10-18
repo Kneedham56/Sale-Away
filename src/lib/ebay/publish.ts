@@ -26,6 +26,7 @@ type PublishItem = {
   ebay_category_id: string | null;
   ebay_category_name: string | null;
   shipping_policy_id: string | null;
+  return_policy_id?: string | null;
   weight_oz: number | null;
   length_in: number | null;
   width_in: number | null;
@@ -76,8 +77,9 @@ export function checkReady(item: PublishItem, photoCount: number, policies: Poli
   if (!photoCount) problems.push("No photos.");
   if (!item.ebay_category_id && !item.ebay_category_name) problems.push("No eBay category.");
   if (!item.condition) problems.push("Condition (new / pre-owned) not set.");
-  if (!(item.shipping_policy_id || policies.fulfillment)) problems.push("No shipping policy chosen in Settings.");
-  if (!policies.payment || !policies.return) problems.push("Payment and return policies not chosen in Settings.");
+  if (!(item.shipping_policy_id || policies.fulfillment)) problems.push("Pick a shipping policy.");
+  if (!policies.payment) problems.push("Pick your usual payment policy (Settings → eBay).");
+  if (!(item.return_policy_id || policies.return)) problems.push("Pick a return policy.");
   if ((item.item_specifics ?? []).some((s) => /^unknown$/i.test(s.value))) problems.push("Some item specifics are still “unknown”.");
   return { ok: problems.length === 0, problems };
 }
@@ -148,6 +150,12 @@ export async function publishItem(
       ? { length: Number(item.length_in), width: Number(item.width_in), height: Number(item.height_in) }
       : null;
 
+  // Calculated-shipping policies: eBay won't publish without the package weight and size
+  const chosenPolicy = (await client.getPolicies().catch(() => null))?.fulfillment.find((pp) => pp.id === fulfillmentPolicyId);
+  if (chosenPolicy?.needsPackage && !(item.weight_oz && dims)) {
+    throw new Error(`“${chosenPolicy.name}” uses calculated shipping, so eBay needs the package weight and size (L × W × H).`);
+  }
+
   const inventoryItem = {
     sku,
     title: item.title,
@@ -166,7 +174,7 @@ export async function publishItem(
     listingDescription: description,
     fulfillmentPolicyId,
     paymentPolicyId: policies.payment!,
-    returnPolicyId: policies.return!,
+    returnPolicyId: item.return_policy_id || policies.return!,
     merchantLocationKey: "home",
     bestOffer: true,
   };

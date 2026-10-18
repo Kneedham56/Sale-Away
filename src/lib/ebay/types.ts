@@ -71,7 +71,8 @@ export type CategorySuggestion = { categoryId: string; categoryName: string; pat
 
 export type Aspect = { name: string; required: boolean; values: string[] };
 
-export type Policy = { id: string; name: string; description?: string };
+/** `needsPackage`: calculated shipping, so eBay requires the package weight and size on the listing */
+export type Policy = { id: string; name: string; description?: string; needsPackage?: boolean };
 export type Policies = { fulfillment: Policy[]; payment: Policy[]; return: Policy[] };
 
 export type InventoryItemPayload = {

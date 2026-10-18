@@ -21,6 +21,7 @@ import { ListOnEbay } from "./list-on-ebay";
 import { ebayModeFor } from "@/lib/ebay/mode";
 import { checkReady, type PolicyDefaults } from "@/lib/ebay/publish";
 import { createAdminClient } from "@/lib/supabase/admin";
+import { getEbayClient } from "@/lib/ebay/client";
 
 export const metadata: Metadata = { title: "Item" };
 // Generate Listing can take up to a minute on the full model
@@ -65,9 +66,23 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/ite
   // Her business may post: show List on eBay (asking her to connect first if she isn't)
   const canList = mode.canPublish && ["intake", "unlisted", "ready_to_list"].includes(item.status);
   const connected = !!conn;
+  // Her own eBay shipping / return policies for the List on eBay box (cached 10 min in the eBay client)
+  const ebayPolicies =
+    canList && connected && mode.env !== "mock"
+      ? await getEbayClient(mode.env, me.workspace.id)
+          .getPolicies()
+          .then((p) => ({ fulfillment: p.fulfillment, return: p.return }))
+          .catch(() => null)
+      : null;
+  const savedPolicies = (lookups.settings.ebay_policies ?? {}) as PolicyDefaults;
+  const listDefaults = {
+    shipping: item.shipping_policy_id || (item.kind !== "general" && savedPolicies.fulfillment_media) || savedPolicies.fulfillment || null,
+    returns: item.return_policy_id || savedPolicies.return || null,
+  };
   const listProblems = canList
     ? [
-        ...checkReady(item, (photos ?? []).length, (lookups.settings.ebay_policies ?? {}) as PolicyDefaults).problems.filter(
+        // Price, shipping/return policy and package are chosen in the List on eBay box itself
+        ...checkReady(item, (photos ?? []).length, { ...savedPolicies, fulfillment: "chosen-in-box", return: "chosen-in-box" }).problems.filter(
           (p) => p !== "No list price."
         ),
         ...(typeof lookups.settings.ebay_postal_code === "string" && lookups.settings.ebay_postal_code ? [] : ["Ship-from ZIP not set (Settings → eBay)."]),
@@ -110,6 +125,11 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/ite
     ["Days active", item.days_active ?? "–"],
   ];
   if (item.date_sold) facts.push(["Sold", shortDate(item.date_sold)]);
+  if (item.weight_oz) {
+    const oz = Number(item.weight_oz);
+    const size = item.length_in && item.width_in && item.height_in ? ` · ${Number(item.length_in)}×${Number(item.width_in)}×${Number(item.height_in)} in` : "";
+    facts.push(["Package", `${Math.floor(oz / 16) ? `${Math.floor(oz / 16)} lb ` : ""}${Math.round((oz % 16) * 10) / 10 ? `${Math.round((oz % 16) * 10) / 10} oz` : ""}${size}`]);
+  }
   if (item.owner) facts.push(["Owner", item.owner]);
   if (item.sku) facts.push(["SKU", item.sku]);
 
@@ -188,7 +208,21 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/ite
           )}
 
           {canList && (
-            <ListOnEbay itemId={item.id} listPrice={item.list_price} env={mode.env} problems={listProblems} connected={connected} />
+            <ListOnEbay
+              itemId={item.id}
+              listPrice={item.list_price}
+              env={mode.env}
+              problems={listProblems}
+              connected={connected}
+              policies={ebayPolicies}
+              defaults={listDefaults}
+              pkg={{
+                weightOz: item.weight_oz === null ? null : Number(item.weight_oz),
+                lengthIn: item.length_in === null ? null : Number(item.length_in),
+                widthIn: item.width_in === null ? null : Number(item.width_in),
+                heightIn: item.height_in === null ? null : Number(item.height_in),
+              }}
+            />
           )}
 
           <StatusActions

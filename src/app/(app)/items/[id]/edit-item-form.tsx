@@ -4,6 +4,7 @@ import { useActionState, useState } from "react";
 import { updateItem } from "../actions";
 import { DataList, Field, MoneyInput, SubmitButton } from "@/components/fields";
 import { TripPicker } from "@/components/trip-picker";
+import { PackageFields } from "@/components/package-fields";
 import { KIND_LABELS } from "@/lib/format";
 import type { Lookups } from "@/lib/data/lookups";
 
@@ -112,21 +113,15 @@ export function EditItemForm({ item, lookups, today }: { item: EditableItem; loo
         <textarea name="condition_notes" className="input min-h-20" defaultValue={item.condition_notes ?? ""} />
       </Field>
 
-      <fieldset className="grid grid-cols-4 gap-2">
-        <legend className="mb-1 text-sm font-medium">Package (for shipping)</legend>
-        <Field label="Weight oz">
-          <input name="weight_oz" className="input px-3" inputMode="decimal" defaultValue={v(item.weight_oz)} />
-        </Field>
-        <Field label="L in">
-          <input name="length_in" className="input px-3" inputMode="decimal" defaultValue={v(item.length_in)} />
-        </Field>
-        <Field label="W in">
-          <input name="width_in" className="input px-3" inputMode="decimal" defaultValue={v(item.width_in)} />
-        </Field>
-        <Field label="H in">
-          <input name="height_in" className="input px-3" inputMode="decimal" defaultValue={v(item.height_in)} />
-        </Field>
-      </fieldset>
+      <PackageFields
+        names
+        initial={{
+          weightOz: item.weight_oz === null ? null : Number(item.weight_oz),
+          lengthIn: item.length_in === null ? null : Number(item.length_in),
+          widthIn: item.width_in === null ? null : Number(item.width_in),
+          heightIn: item.height_in === null ? null : Number(item.height_in),
+        }}
+      />
 
       <div className="grid grid-cols-2 gap-3">
         <Field label="Custom SKU">
