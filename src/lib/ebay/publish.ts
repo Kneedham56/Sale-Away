@@ -114,6 +114,7 @@ export async function publishItem(
   const { data: settingRows } = await supabase
     .from("settings")
     .select("key, value")
+    .eq("workspace_id", ws)
     .in("key", ["ebay_policies", "sku_template", "description_template", "ebay_postal_code"]);
   const settings = Object.fromEntries((settingRows ?? []).map((r) => [r.key, r.value]));
   const policies = (settings.ebay_policies ?? {}) as PolicyDefaults;
@@ -130,19 +131,17 @@ export async function publishItem(
 
   const client = getEbayClient(env, ws);
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date());
-  // Re-posting reuses the SKU it was live under; otherwise her label (typed or built) plus the item number
+  // Her label (typed or built) always ends in the item number. Re-posting reuses its old offer only when that offer
+  // was under this same unique SKU (older posts used her bare label, which another listing may share).
+  const sku = item.sku ? withItemNumber(item.sku, item.item_number) : buildSku(item, String(settings.sku_template ?? ""), item.date_listed ?? today);
   const { data: own } = await supabase
     .from("ebay_listings")
-    .select("sku, offer_id")
+    .select("offer_id")
     .eq("item_id", itemId)
     .eq("environment", env === "mock" ? "sandbox" : env)
+    .eq("sku", sku)
     .not("offer_id", "is", null)
-    .order("created_at", { ascending: false })
-    .limit(1)
     .maybeSingle();
-  const sku =
-    own?.sku ??
-    (item.sku ? withItemNumber(item.sku, item.item_number) : buildSku(item, String(settings.sku_template ?? ""), item.date_listed ?? today));
 
   let categoryId: string | null = item.ebay_category_id;
   if (!categoryId) {
@@ -214,7 +213,18 @@ export async function publishItem(
 
   try {
     // Never overwrite another live listing: eBay would quietly turn it into this item if the SKU matches
-    const clash = (await client.findOffers(sku)).find((o) => o.status === "PUBLISHED" && o.offerId !== own?.offer_id);
+    const { data: seen } = await supabase
+      .from("ebay_active_listings")
+      .select("listing_id")
+      .eq("workspace_id", ws)
+      .eq("environment", env)
+      .eq("sku", sku)
+      .neq("listing_id", item.ebay_item_id ?? "")
+      .limit(1)
+      .maybeSingle();
+    const clash =
+      (await client.findOffers(sku)).find((o) => o.status === "PUBLISHED" && o.offerId !== own?.offer_id) ??
+      (seen ? { offerId: "seller-hub", listingId: seen.listing_id } : undefined);
     if (clash) {
       throw new FormError(
         `eBay already has a live listing with the SKU “${sku}”${clash.listingId ? ` (item ${clash.listingId})` : ""}. Posting would replace it, so nothing was sent. Change the Custom SKU in Edit, then try again.`,
