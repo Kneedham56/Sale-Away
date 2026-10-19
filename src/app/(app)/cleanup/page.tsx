@@ -2,17 +2,11 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { requireMember } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { createAdminClient } from "@/lib/supabase/admin";
-import { getEbayClient } from "@/lib/ebay/client";
-import { ebayModeFor } from "@/lib/ebay/mode";
-import type { Policies } from "@/lib/ebay/types";
 import { bestMatch, words } from "@/lib/similar";
 import { money, shortDate } from "@/lib/format";
 import { PageHeader } from "@/components/page-header";
 import { Empty } from "@/components/item-row";
-import { EbaySettingsForm } from "../settings/ebay/ebay-forms";
 import { resolveAppItem, resolveLiveListing } from "./actions";
-import { QuestionsForm } from "./questions-form";
 
 export const metadata: Metadata = { title: "Cleanup" };
 export const maxDuration = 120;
@@ -33,12 +27,12 @@ async function loadAll<T>(q: (from: number, to: number) => PromiseLike<{ data: T
 }
 
 export default async function CleanupPage({ searchParams }: PageProps<"/cleanup">) {
-  const me = await requireMember();
+  await requireMember();
   const sp = await searchParams;
-  const tab = typeof sp.tab === "string" ? sp.tab : "questions";
+  const tab = typeof sp.tab === "string" && sp.tab !== "questions" ? sp.tab : "app";
   const supabase = await createClient();
 
-  const [notLive, liveRows, skippedRow, answersRow, unlinkedSales] = await Promise.all([
+  const [notLive, liveRows, skippedRow, unlinkedSales] = await Promise.all([
     loadAll<AppItem>((f, t) =>
       supabase.from("items").select("id, title, storage_location, date_listed, list_price").eq("status", "listed").is("ebay_item_id", null).order("date_listed").range(f, t)
     ),
@@ -46,37 +40,16 @@ export default async function CleanupPage({ searchParams }: PageProps<"/cleanup"
       supabase.from("ebay_active_listings").select("listing_id, title, price, start_time, item_id").is("item_id", null).order("start_time").range(f, t)
     ),
     supabase.from("settings").select("value").eq("key", "cleanup_skipped").maybeSingle(),
-    supabase.from("settings").select("value").eq("key", "cleanup_answers").maybeSingle(),
     supabase.from("sales_view").select("id, title, sold_date, gross, platform").is("item_id", null).gte("sold_date", "2026-10-01"),
   ]);
   const skipped = new Set(Array.isArray(skippedRow.data?.value) ? (skippedRow.data!.value as string[]) : []);
   const notInApp = liveRows.filter((l) => !skipped.has(l.listing_id));
-  const answers = (answersRow.data?.value as Record<string, string> | undefined) ?? {};
-  const answered = Object.keys(answers).filter((k) => k.startsWith("q_") && answers[k]).length;
 
   const tabs = [
-    ["questions", "Questions", answered ? `${answered} answered` : "start here"],
     ["app", "In the app, not on eBay", `${notLive.length} left`],
     ["ebay", "On eBay, not in the app", `${notInApp.length} left`],
     ["sales", "Sales to match", `${unlinkedSales.data?.length ?? 0} left`],
   ] as const;
-
-  // Listing defaults need her eBay connection (to read her shipping / payment / return policies)
-  let policies: Policies | null = null;
-  let defaults: Record<string, string> = {};
-  if (tab === "questions") {
-    const mode = await ebayModeFor(me.workspace.id);
-    const { data: conn } = await createAdminClient()
-      .from("ebay_connection")
-      .select("environment")
-      .eq("workspace_id", me.workspace.id)
-      .eq("environment", mode.env === "mock" ? "production" : mode.env)
-      .maybeSingle();
-    if (conn) policies = await getEbayClient(mode.env, me.workspace.id).getPolicies().catch(() => null);
-    const { data: rows } = await supabase.from("settings").select("key, value").in("key", ["ebay_policies", "ebay_postal_code", "sku_template"]);
-    const s = Object.fromEntries((rows ?? []).map((r) => [r.key, r.value]));
-    defaults = { ...((s.ebay_policies as Record<string, string>) ?? {}), zip: (s.ebay_postal_code as string) ?? "", sku: (s.sku_template as string) ?? "{cost}-{lot}-{listed}-{n}" };
-  }
 
   return (
     <div className="mx-auto max-w-3xl">
@@ -84,7 +57,7 @@ export default async function CleanupPage({ searchParams }: PageProps<"/cleanup"
         title="One-time cleanup"
         subtitle="Now that Sale Away can see your eBay, let's tidy a few things up. Do a few at a time; everything saves as you go."
       />
-      <div className="mb-5 grid grid-cols-2 gap-2 sm:grid-cols-4">
+      <div className="mb-5 grid grid-cols-3 gap-2">
         {tabs.map(([key, label, count]) => (
           <Link
             key={key}
@@ -96,38 +69,6 @@ export default async function CleanupPage({ searchParams }: PageProps<"/cleanup"
           </Link>
         ))}
       </div>
-
-      {tab === "questions" && (
-        <div className="space-y-6">
-          <section className="card space-y-3 p-4">
-            <h2 className="font-semibold">Your usual eBay settings</h2>
-            <p className="text-sm text-muted">
-              When Sale Away posts a listing for you, it uses these from your own eBay account. Pick the ones you use most.
-            </p>
-            {policies ? (
-              <EbaySettingsForm
-                policies={policies}
-                values={{
-                  fulfillment: defaults.fulfillment,
-                  fulfillment_media: defaults.fulfillment_media,
-                  payment: defaults.payment,
-                  return: defaults.return,
-                  zip: defaults.zip,
-                  sku: defaults.sku,
-                }}
-              />
-            ) : (
-              <p className="rounded-xl bg-coral/10 px-3 py-2 text-sm text-coral">
-                Sign in to eBay first (☰ menu → eBay → Connect eBay), then come back here to pick these.
-              </p>
-            )}
-          </section>
-          <section>
-            <h2 className="mb-3 font-semibold">A few questions</h2>
-            <QuestionsForm answers={answers} />
-          </section>
-        </div>
-      )}
 
       {tab === "app" && <NotOnEbay items={notLive} live={notInApp} page={Number(sp.page) || 0} />}
       {tab === "ebay" && <NotInApp live={notInApp} supabase={supabase} page={Number(sp.page) || 0} />}

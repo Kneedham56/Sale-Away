@@ -7,7 +7,7 @@ import { todayIso } from "@/lib/dates";
 import { FULFILLMENT_LABELS, shortDate } from "@/lib/format";
 import { PageHeader } from "@/components/page-header";
 import { Empty, Thumb } from "@/components/item-row";
-import { SubmitButton } from "@/components/fields";
+import { MoneyInput, SubmitButton } from "@/components/fields";
 import { setFulfillment } from "../sales/actions";
 import { PrintButton } from "@/components/print-button";
 import { ebayStatusAndAutoSync } from "@/lib/ebay/status";
@@ -27,7 +27,7 @@ export default async function OutgoingPage({ searchParams }: PageProps<"/outgoin
 
   let q = supabase
     .from("sales_view")
-    .select("id, title, platform, sold_date, ship_by, buyer_name, ship_to, shipping_service, order_id, storage_location, fulfillment_status, item_id")
+    .select("id, title, platform, sold_date, ship_by, buyer_name, ship_to, shipping_service, order_id, storage_location, fulfillment_status, item_id, shipping_cost")
     .in("fulfillment_status", ["to_ship", "packed"]);
   q = byShipBy
     ? q.order("ship_by", { ascending: true, nullsFirst: false }).order("sold_date")
@@ -108,9 +108,14 @@ export default async function OutgoingPage({ searchParams }: PageProps<"/outgoin
                         Buy label ↗
                       </a>
                     )}
-                    <form action={setFulfillment}>
+                    <form action={setFulfillment} className="flex gap-2">
                       <input type="hidden" name="id" value={o.id} />
                       <input type="hidden" name="status" value="shipped" />
+                      {!Number(o.shipping_cost) && (
+                        <div className="w-28">
+                          <MoneyInput name="label_cost" placeholder="Label" aria-label="What the shipping label cost" className="input h-9 pl-7 text-sm" />
+                        </div>
+                      )}
                       <SubmitButton className="btn-small" pendingText="…">Shipped</SubmitButton>
                     </form>
                   </div>

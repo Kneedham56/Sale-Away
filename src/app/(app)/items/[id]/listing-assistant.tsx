@@ -2,6 +2,8 @@
 
 import { useState, useTransition } from "react";
 import { acceptListing, buildCopyPrompt, generateListing, readPastedAnswer } from "../ai-actions";
+import { ActionError } from "@/components/action-error";
+import type { ErrorHelp } from "@/lib/form";
 import { publishToEbay } from "../../settings/ebay/actions";
 import { CopyButton } from "@/components/copy-button";
 import { Field, MoneyInput } from "@/components/fields";
@@ -35,11 +37,13 @@ export function ListingAssistant({
   const [copyPrompt, setCopyPrompt] = useState<string | null>(null);
   const [pasted, setPasted] = useState("");
   const [error, setError] = useState<string | null>(null);
+  const [pubError, setPubError] = useState<{ error: string; help?: ErrorHelp } | null>(null);
   const [accepted, setAccepted] = useState<null | "saved" | { url: string | null; preview: boolean }>(null);
   const [pending, start] = useTransition();
 
   function run(fn: () => Promise<void>) {
     setError(null);
+    setPubError(null);
     start(async () => {
       try {
         await fn();
@@ -94,7 +98,8 @@ export function ListingAssistant({
       // Saved either way; if eBay refused, say why and leave it in Drafted
       if (!pub.ok) {
         setAccepted("saved");
-        return setError(`Saved to Drafted, but not listed yet: ${pub.error}`);
+        setPubError({ error: `Saved to Drafted, but not on eBay yet. ${pub.error}`, help: pub.help });
+        return;
       }
       setAccepted({ url: pub.data!.url, preview: pub.data!.dryRun });
     });
@@ -159,6 +164,7 @@ export function ListingAssistant({
       )}
 
       {error && <p className="text-sm text-danger">{error}</p>}
+      {pubError && <ActionError error={pubError.error} help={pubError.help} context={`Item ${itemId}`} />}
 
       {draft && (
         <div className="space-y-4 border-t border-border pt-4">

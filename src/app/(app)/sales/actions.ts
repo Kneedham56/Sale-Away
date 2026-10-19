@@ -61,7 +61,12 @@ export async function setFulfillment(fd: FormData) {
   const id = requiredText(fd, "id", "Sale");
   const status = requiredText(fd, "status", "Status");
   if (!FULFILLMENT.includes(status)) throw new FormError("Unknown status.");
-  await supabase.from("sales").update({ fulfillment_status: status }).eq("id", id);
+  // Labels she buys on eBay are paid with PayPal, so eBay never reports them: she types the cost when she ships
+  const labelCost = number(fd, "label_cost", "Label cost");
+  await supabase
+    .from("sales")
+    .update({ fulfillment_status: status, ...(labelCost !== null && labelCost >= 0 ? { shipping_cost: labelCost } : {}) })
+    .eq("id", id);
   const { data } = await supabase.from("sales").select("item_id").eq("id", id).single();
   if (data?.item_id && status === "shipped") await supabase.from("items").update({ status: "shipped" }).eq("id", data.item_id).eq("status", "sold");
   refresh();

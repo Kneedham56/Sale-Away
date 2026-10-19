@@ -3,8 +3,11 @@ import type { SupabaseClient } from "@supabase/supabase-js";
 import { createAdminClient } from "@/lib/supabase/admin";
 import { PHOTO_BUCKET } from "@/lib/photos";
 import { applyTemplate, type Specific } from "@/lib/listing-text";
-import { buildSku } from "@/lib/sku";
+import { buildSku, withItemNumber } from "@/lib/sku";
+import { FormError } from "@/lib/form";
+import { cleanMeasurements, measurementsText } from "@/lib/measurements";
 import { getEbayClient } from "./client";
+import { ebayProblem } from "./errors";
 import type { EbayEnv } from "./config";
 
 export type PolicyDefaults = { fulfillment?: string; fulfillment_media?: string; payment?: string; return?: string };
@@ -31,6 +34,7 @@ type PublishItem = {
   length_in: number | null;
   width_in: number | null;
   height_in: number | null;
+  measurements?: unknown;
   sku: string | null;
   lot_code: string | null;
   date_sourced: string | null;
@@ -126,7 +130,19 @@ export async function publishItem(
 
   const client = getEbayClient(env, ws);
   const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date());
-  const sku = item.sku || buildSku(item, String(settings.sku_template ?? ""), item.date_listed ?? today);
+  // Re-posting reuses the SKU it was live under; otherwise her label (typed or built) plus the item number
+  const { data: own } = await supabase
+    .from("ebay_listings")
+    .select("sku, offer_id")
+    .eq("item_id", itemId)
+    .eq("environment", env === "mock" ? "sandbox" : env)
+    .not("offer_id", "is", null)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  const sku =
+    own?.sku ??
+    (item.sku ? withItemNumber(item.sku, item.item_number) : buildSku(item, String(settings.sku_template ?? ""), item.date_listed ?? today));
 
   let categoryId: string | null = item.ebay_category_id;
   if (!categoryId) {
@@ -135,11 +151,17 @@ export async function publishItem(
   }
   if (!categoryId) throw new Error("Couldn't find an eBay category for this item.");
 
-  const description = applyTemplate(String(settings.description_template ?? ""), {
-    title: item.title,
-    description: item.listing_description ?? "",
-    condition: item.condition_text ?? item.condition_notes ?? "",
-  });
+  const measured = measurementsText(cleanMeasurements(item.measurements));
+  const description = [
+    applyTemplate(String(settings.description_template ?? ""), {
+      title: item.title,
+      description: item.listing_description ?? "",
+      condition: item.condition_text ?? item.condition_notes ?? "",
+    }),
+    measured,
+  ]
+    .filter(Boolean)
+    .join("\n\n");
   const aspects = Object.fromEntries(
     (item.item_specifics ?? []).filter((s: Specific) => s.value && !/^unknown$/i.test(s.value)).map((s: Specific) => [s.name, [s.value]])
   );
@@ -191,6 +213,15 @@ export async function publishItem(
   };
 
   try {
+    // Never overwrite another live listing: eBay would quietly turn it into this item if the SKU matches
+    const clash = (await client.findOffers(sku)).find((o) => o.status === "PUBLISHED" && o.offerId !== own?.offer_id);
+    if (clash) {
+      throw new FormError(
+        `eBay already has a live listing with the SKU “${sku}”${clash.listingId ? ` (item ${clash.listingId})` : ""}. Posting would replace it, so nothing was sent. Change the Custom SKU in Edit, then try again.`,
+        { fix: "edit", detail: `SKU clash with offer ${clash.offerId}` }
+      );
+    }
+
     // Photos: eBay copies each from a short-lived signed link
     const paths = (photos ?? []).map((p) => p.jpeg_path ?? p.storage_path);
     const { data: signed } = await supabase.storage.from(PHOTO_BUCKET).createSignedUrls(paths, 3600);
@@ -233,7 +264,7 @@ export async function publishItem(
     return { environment: env, dryRun: false, sku, offerId, listingId, url };
   } catch (e) {
     await recordFailure(e instanceof Error ? e.message : String(e));
-    throw e;
+    throw ebayProblem(e, "post this item");
   }
 }
 
@@ -271,32 +302,54 @@ export async function endListing(
   env: EbayEnv,
   canWrite: boolean,
   actor: string | null,
-  ws: string
+  ws: string,
+  opts: { force?: boolean } = {}
 ): Promise<EndResult> {
   const ref = await ebayRefFor(supabase, itemId, env);
   if (!ref) return { ended: false, note: null };
-  const shownId = ref.kind === "app" ? ref.listingId : ref.listingId;
+  const shownId = ref.listingId;
   if (env === "mock") return { ended: false, note: "Sample data: nothing to end on eBay." };
-  if (!canWrite) return { ended: false, note: `It's still live on eBay (item ${shownId}). End it there, or reconnect eBay so Sale Away can.` };
-  const client = getEbayClient(env, ws);
-  try {
-    if (ref.kind === "app") {
-      await client.withdrawOffer(ref.offerId);
-      await supabase.from("ebay_listings").update({ status: "ended" }).eq("id", ref.listingRowId);
-    } else {
-      await client.endLegacyListing(ref.listingId);
-    }
-    await supabase.from("items").update({ ebay_ended_at: new Date().toISOString() }).eq("id", itemId);
-    await log(ws, actor, "ebay.listing_ended", { environment: env, itemId, listingId: shownId, kind: ref.kind });
-    return { ended: true, note: `Ended the ${env === "sandbox" ? "test " : ""}eBay listing.` };
-  } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    await log(ws, actor, "ebay.end_failed", { environment: env, itemId, listingId: shownId, error: msg });
-    return { ended: false, note: `Couldn't end the eBay listing (${msg}). End it on eBay.` };
+  if (opts.force) {
+    await log(ws, actor, "ebay.end_skipped", { environment: env, itemId, listingId: shownId });
+    return { ended: false, note: `Saved in Sale Away only. It's still live on eBay (item ${shownId}): end it there.` };
   }
+  if (!canWrite) {
+    throw new FormError(
+      `This item is still live on eBay (item ${shownId}), and Sale Away isn't allowed to change your eBay listings right now, so nothing was changed.`,
+      { fix: "doc", canForce: true, detail: "publishing is off for this business" }
+    );
+  }
+  const client = getEbayClient(env, ws);
+  const markEnded = async () => {
+    if (ref.kind === "app") await supabase.from("ebay_listings").update({ status: "ended" }).eq("id", ref.listingRowId);
+    await supabase.from("items").update({ ebay_ended_at: new Date().toISOString() }).eq("id", itemId);
+  };
+  try {
+    if (ref.kind === "app") await client.withdrawOffer(ref.offerId);
+    else await client.endLegacyListing(ref.listingId);
+  } catch (e) {
+    // Already gone from eBay (ended by FLYP, sold, or ended by hand)? Then there's nothing left to do.
+    const stillLive =
+      ref.kind === "app"
+        ? await client
+            .findOffers(ref.sku)
+            .then((offers) => offers.some((o) => o.offerId === ref.offerId && o.status === "PUBLISHED"))
+            .catch(() => true)
+        : true;
+    if (stillLive) {
+      await log(ws, actor, "ebay.end_failed", { environment: env, itemId, listingId: shownId, error: e instanceof Error ? e.message : String(e) });
+      throw ebayProblem(e, "end this eBay listing", { canForce: true });
+    }
+  }
+  await markEnded();
+  await log(ws, actor, "ebay.listing_ended", { environment: env, itemId, listingId: shownId, kind: ref.kind });
+  return { ended: true, note: `Ended the ${env === "sandbox" ? "test " : ""}eBay listing.` };
 }
 
-/** Pushes a new price and/or title to the item's live eBay listing. Returns a note only when she needs to act. */
+/**
+ * Pushes a new price and/or title to the item's live eBay listing, before Sale Away saves it.
+ * Throws (nothing saved) if eBay won't take it, unless she chose to save in Sale Away only.
+ */
 export async function reviseListing(
   supabase: SupabaseClient,
   itemId: string,
@@ -304,31 +357,35 @@ export async function reviseListing(
   env: EbayEnv,
   canWrite: boolean,
   actor: string | null,
-  ws: string
+  ws: string,
+  opts: { force?: boolean } = {}
 ): Promise<string | null> {
   if (changes.price === undefined && !changes.title) return null;
   const ref = await ebayRefFor(supabase, itemId, env);
   if (!ref || env === "mock") return null;
-  const what = [changes.price !== undefined && `price $${changes.price.toFixed(2)}`, changes.title && "title"].filter(Boolean).join(" and ");
-  if (!canWrite) return `Saved in Sale Away only. Change the ${what} on eBay too, or reconnect eBay so Sale Away can.`;
+  const what = [changes.price !== undefined && `price ($${changes.price.toFixed(2)})`, changes.title && "title"].filter(Boolean).join(" and ");
+  if (opts.force) {
+    await log(ws, actor, "ebay.revise_skipped", { environment: env, itemId, listingId: ref.listingId, ...changes });
+    return `Saved in Sale Away only. Change the ${what} on eBay too.`;
+  }
+  if (!canWrite) {
+    throw new FormError(
+      `This item is live on eBay (item ${ref.listingId}), and Sale Away isn't allowed to change your eBay listings right now, so the new ${what} wasn't saved.`,
+      { fix: "doc", canForce: true, detail: "publishing is off for this business" }
+    );
+  }
   const client = getEbayClient(env, ws);
   try {
     if (ref.kind === "legacy") {
       await client.reviseLegacyListing(ref.listingId, changes);
     } else {
       if (changes.price !== undefined) await client.updateOfferPrice(ref.offerId, ref.sku, changes.price);
-      if (changes.title) {
-        await log(ws, actor, "ebay.revise_partial", { environment: env, itemId, note: "title changes for app-posted listings are not sent yet" });
-        return changes.price !== undefined
-          ? "Price updated on eBay. The new title is saved in Sale Away only for now."
-          : "The new title is saved in Sale Away only for now; change it on eBay too.";
-      }
+      if (changes.title) await client.updateInventoryTitle(ref.sku, changes.title);
     }
-    await log(ws, actor, "ebay.listing_revised", { environment: env, itemId, listingId: ref.listingId, ...changes });
-    return null;
   } catch (e) {
-    const msg = e instanceof Error ? e.message : String(e);
-    await log(ws, actor, "ebay.revise_failed", { environment: env, itemId, listingId: ref.listingId, error: msg });
-    return `Saved in Sale Away, but eBay didn't take the change (${msg}). Change the ${what} on eBay.`;
+    await log(ws, actor, "ebay.revise_failed", { environment: env, itemId, listingId: ref.listingId, error: e instanceof Error ? e.message : String(e) });
+    throw ebayProblem(e, `change the ${what}`, { canForce: true });
   }
+  await log(ws, actor, "ebay.listing_revised", { environment: env, itemId, listingId: ref.listingId, ...changes });
+  return null;
 }

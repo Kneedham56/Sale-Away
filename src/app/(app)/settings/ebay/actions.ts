@@ -9,6 +9,9 @@ import { ebayModeFor } from "@/lib/ebay/mode";
 import { runEbaySync, type SyncResult } from "@/lib/ebay/sync";
 import { forgetUserToken } from "@/lib/ebay/tokens";
 import { publishItem, type PublishResult } from "@/lib/ebay/publish";
+import { ebayProblem } from "@/lib/ebay/errors";
+import { DEFAULT_SKU_TEMPLATE } from "@/lib/sku";
+import { cleanMeasurements, type Measurement } from "@/lib/measurements";
 
 export async function syncNow(): Promise<ActionResult<SyncResult>> {
   return attempt(async () => {
@@ -59,7 +62,7 @@ export async function saveEbaySettings(_prev: unknown, fd: FormData): Promise<Ac
         },
       },
       { key: "ebay_postal_code", value: zip },
-      { key: "sku_template", value: text(fd, "sku_template") ?? "{cost}-{lot}-{listed}-{n}" },
+      { key: "sku_template", value: text(fd, "sku_template") ?? DEFAULT_SKU_TEMPLATE },
     ];
     const { error } = await supabase.from("settings").upsert(rows, { onConflict: "workspace_id,key" });
     if (error) throw new Error(error.message);
@@ -75,13 +78,14 @@ export type ListingChoices = {
   lengthIn?: number | null;
   widthIn?: number | null;
   heightIn?: number | null;
+  measurements?: Measurement[];
 };
 
 export async function publishToEbay(itemId: string, price?: number | null, choices?: ListingChoices): Promise<ActionResult<PublishResult>> {
   return attempt(async () => {
     const me = await requireMember();
     const mode = await ebayModeFor(me.workspace.id);
-    if (!mode.canPublish) throw new FormError(mode.publishOffReason ?? "Publishing is off.");
+    if (!mode.canPublish) throw new FormError(mode.publishOffReason ?? "Publishing is off.", { fix: "doc" });
     const env = mode.env;
     const supabase = await createClient();
     const patch: Record<string, unknown> = {};
@@ -98,8 +102,14 @@ export async function publishToEbay(itemId: string, price?: number | null, choic
         if (n !== undefined) patch[key] = n;
       }
     }
+    if (choices?.measurements) {
+      const list = cleanMeasurements(choices.measurements);
+      patch.measurements = list.length ? list : null;
+    }
     if (Object.keys(patch).length) await supabase.from("items").update(patch).eq("id", itemId);
-    const result = await publishItem(supabase, itemId, env, me.userId, me.workspace.id);
+    const result = await publishItem(supabase, itemId, env, me.userId, me.workspace.id).catch((e: unknown) => {
+      throw ebayProblem(e, "post this item");
+    });
     if (!result.dryRun) refresh();
     return result;
   });

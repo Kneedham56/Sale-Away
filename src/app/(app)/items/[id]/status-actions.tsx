@@ -5,6 +5,7 @@ import { useActionState, useState } from "react";
 import { changeStatus, logItemEvent } from "../actions";
 import { Field, MoneyInput, SubmitButton } from "@/components/fields";
 import { EXIT_LABELS, type ItemStatus } from "@/lib/format";
+import { ActionError, ForceCheckbox } from "@/components/action-error";
 
 type Panel = null | "list" | "log" | "exit";
 
@@ -15,7 +16,7 @@ export function StatusActions({
   today,
   listedViaEbay = false,
 }: {
-  item: { id: string; status: ItemStatus; list_price: number | null; storage_location: string | null };
+  item: { id: string; item_number: number; title: string; status: ItemStatus; list_price: number | null; storage_location: string | null };
   actions: string[];
   storageLocations: string[];
   today: string;
@@ -31,6 +32,9 @@ export function StatusActions({
     (statusState !== opened.at[0] && statusState?.ok) || (logState !== opened.at[1] && logState?.ok);
   const panel = savedSinceOpen ? null : opened.panel;
   const [logChoice, setLogChoice] = useState(actions[0] ?? "Reduced Price");
+  const context = `Item #${item.item_number}: ${item.title}`;
+  const statusHelp = statusState && !statusState.ok ? statusState.help : undefined;
+  const logHelp = logState && !logState.ok ? logState.help : undefined;
 
   const isActive = ["intake", "unlisted", "ready_to_list"].includes(item.status);
   const isListed = item.status === "listed";
@@ -125,8 +129,9 @@ export function StatusActions({
           <Field label="Note (optional)">
             <input name="note" className="input" />
           </Field>
+          {logState && !logState.ok && <ActionError error={logState.error} help={logHelp} context={context} />}
+          <ForceCheckbox help={logHelp} />
           <SubmitButton>Save</SubmitButton>
-          {logState && !logState.ok && <p className="text-sm text-danger">{logState.error}</p>}
         </form>
       )}
 
@@ -146,11 +151,27 @@ export function StatusActions({
           <Field label="Note (optional)">
             <input name="note" className="input" />
           </Field>
+          {statusState && !statusState.ok && <ActionError error={statusState.error} help={statusHelp} context={context} />}
+          <ForceCheckbox help={statusHelp} />
           <SubmitButton>Save</SubmitButton>
         </form>
       )}
 
-      {statusState && !statusState.ok && <p className="text-sm text-danger">{statusState.error}</p>}
+      {panel !== "exit" && statusState && !statusState.ok && (
+        <>
+          <ActionError error={statusState.error} help={statusHelp} context={context} />
+          {statusHelp?.canForce && isListed && (
+            <form action={statusAction}>
+              <input type="hidden" name="id" value={item.id} />
+              <input type="hidden" name="status" value="unlisted" />
+              <input type="hidden" name="ebay_skip" value="on" />
+              <SubmitButton className="btn-small min-h-11" pendingText="…">
+                Back to unlisted anyway (I&apos;ll end it on eBay myself)
+              </SubmitButton>
+            </form>
+          )}
+        </>
+      )}
       {statusState?.ok && statusState.data && <p className="rounded-xl bg-coral/10 px-3 py-2 text-sm text-coral">{statusState.data}</p>}
       {logState?.ok && logState.data && <p className="rounded-xl bg-coral/10 px-3 py-2 text-sm text-coral">{logState.data}</p>}
     </div>

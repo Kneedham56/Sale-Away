@@ -162,6 +162,10 @@ export class MockEbayClient implements EbayClient {
   }
   async withdrawOffer() {}
   async updateOfferPrice() {}
+  async updateInventoryTitle() {}
+  async findOffers() {
+    return [];
+  }
   async reviseLegacyListing() {}
   async endLegacyListing() {}
 }

@@ -319,6 +319,42 @@ export async function scrubShippedBuyerDetails(): Promise<number> {
   return count ?? 0;
 }
 
+/**
+ * Her eBay Store subscription as a monthly expense (settings `auto_store_fee` = {amount, since: "YYYY-MM"}).
+ * One row per month, dated the 1st; import_ref keeps it from being added twice.
+ */
+export async function addStoreFees(ws: string): Promise<number> {
+  const db = createAdminClient();
+  const { data: row } = await db.from("settings").select("value").eq("workspace_id", ws).eq("key", "auto_store_fee").maybeSingle();
+  const cfg = row?.value as { amount?: number; since?: string } | undefined;
+  if (!cfg?.amount || !cfg.since) return 0;
+  const now = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date()).slice(0, 7);
+  const months: string[] = [];
+  let [y, m] = cfg.since.split("-").map(Number);
+  while (`${y}-${String(m).padStart(2, "0")}` <= now) {
+    months.push(`${y}-${String(m).padStart(2, "0")}`);
+    [y, m] = m === 12 ? [y + 1, 1] : [y, m + 1];
+  }
+  const { data, error } = await db
+    .from("expenses")
+    .upsert(
+      months.map((ym) => ({
+        workspace_id: ws,
+        date: `${ym}-01`,
+        description: "eBay Store subscription",
+        type: "Bills",
+        amount: cfg.amount,
+        notes: "Added automatically each month",
+        import_ref: `ebay-store-fee:${ym}`,
+        created_by: null,
+      })),
+      { onConflict: "workspace_id,import_ref", ignoreDuplicates: true }
+    )
+    .select("id");
+  if (error) throw new Error(error.message);
+  return data?.length ?? 0;
+}
+
 /** Everything the scheduled job does, recorded in ebay_sync_state. */
 export async function runEbaySync(env: EbayEnv, ws: string): Promise<SyncResult> {
   const db = createAdminClient();
@@ -334,6 +370,7 @@ export async function runEbaySync(env: EbayEnv, ws: string): Promise<SyncResult>
         result.financesError = e instanceof Error ? e.message : String(e);
       }
       result.scrubbed = await scrubShippedBuyerDetails();
+      if (env === "production") await addStoreFees(ws).catch(() => 0);
       // Live-listing watch (FLYP bridge) at most hourly; a failure here doesn't fail the order sync
       const { data: st } = await db.from("ebay_sync_state").select("listings_synced_at").eq("workspace_id", ws).eq("environment", env).maybeSingle();
       if (!st?.listings_synced_at || Date.now() - new Date(st.listings_synced_at).getTime() > 55 * 60_000) {

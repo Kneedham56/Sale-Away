@@ -11,6 +11,7 @@ import { PageHeader } from "@/components/page-header";
 import { StatusBadge } from "@/components/status-badge";
 import { ItemPhotos } from "./item-photos";
 import { StatusActions } from "./status-actions";
+import { cleanMeasurements, looksLikeClothing } from "@/lib/measurements";
 import { EditItemForm } from "./edit-item-form";
 import { deleteItem, resolveEndedListing } from "../actions";
 import { ConfirmButton } from "@/components/fields";
@@ -125,6 +126,8 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/ite
     ["Days active", item.days_active ?? "–"],
   ];
   if (item.date_sold) facts.push(["Sold", shortDate(item.date_sold)]);
+  const measurements = cleanMeasurements(item.measurements);
+  if (measurements.length) facts.push(["Measurements", measurements.map((m) => `${m.name} ${m.value}`).join(" · ")]);
   if (item.weight_oz) {
     const oz = Number(item.weight_oz);
     const size = item.length_in && item.width_in && item.height_in ? ` · ${Number(item.length_in)}×${Number(item.width_in)}×${Number(item.height_in)} in` : "";
@@ -209,6 +212,9 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/ite
 
           {canList && (
             <ListOnEbay
+              context={`Item #${item.item_number}: ${item.title}`}
+              measurements={measurements}
+              clothing={looksLikeClothing(item.category, item.ebay_category_name, item.title)}
               itemId={item.id}
               listPrice={item.list_price}
               env={mode.env}
@@ -227,7 +233,7 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/ite
 
           <StatusActions
             listedViaEbay={canList}
-            item={{ id: item.id, status, list_price: item.list_price, storage_location: item.storage_location }}
+            item={{ id: item.id, item_number: item.item_number, title: item.title, status, list_price: item.list_price, storage_location: item.storage_location }}
             actions={actions}
             storageLocations={lookups.storageLocations}
             today={today}
@@ -278,7 +284,7 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/ite
       <details className="card mt-6 p-4">
         <summary className="cursor-pointer font-medium">Edit details</summary>
         <div className="mt-4">
-          <EditItemForm item={item} lookups={lookups} today={today} />
+          <EditItemForm item={{ ...item, measurements }} lookups={lookups} today={today} />
         </div>
       </details>
 

@@ -5,6 +5,9 @@ import { updateItem } from "../actions";
 import { DataList, Field, MoneyInput, SubmitButton } from "@/components/fields";
 import { TripPicker } from "@/components/trip-picker";
 import { PackageFields } from "@/components/package-fields";
+import { ActionError, ForceCheckbox } from "@/components/action-error";
+import { MeasurementsField } from "@/components/measurements-field";
+import { looksLikeClothing, type Measurement } from "@/lib/measurements";
 import { KIND_LABELS } from "@/lib/format";
 import type { Lookups } from "@/lib/data/lookups";
 
@@ -28,6 +31,7 @@ export type EditableItem = {
   length_in: number | null;
   width_in: number | null;
   height_in: number | null;
+  measurements: Measurement[];
   sku: string | null;
   ebay_item_id: string | null;
   notes: string | null;
@@ -123,8 +127,10 @@ export function EditItemForm({ item, lookups, today }: { item: EditableItem; loo
         }}
       />
 
+      <MeasurementsField name="measurements" initial={item.measurements} startOpen={looksLikeClothing(item.category, item.title)} />
+
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Custom SKU">
+        <Field label="Custom SKU" hint="Sale Away adds the item number when it posts, so no two listings share a SKU.">
           <input name="sku" className="input" defaultValue={item.sku ?? ""} />
         </Field>
         <Field label="eBay item #">
@@ -135,7 +141,8 @@ export function EditItemForm({ item, lookups, today }: { item: EditableItem; loo
         <textarea name="notes" className="input min-h-20" defaultValue={item.notes ?? ""} />
       </Field>
 
-      {state && !state.ok && <p className="text-sm text-danger">{state.error}</p>}
+      {state && !state.ok && <ActionError error={state.error} help={state.help} context={`Editing: ${item.title}`} />}
+      {state && !state.ok && <ForceCheckbox help={state.help} what="Save my changes in Sale Away anyway" />}
       {state?.ok && !state.data && <p className="text-sm font-medium text-ok">Saved.</p>}
       {state?.ok && state.data && <p className="rounded-xl bg-coral/10 px-3 py-2 text-sm text-coral">{state.data}</p>}
       <SubmitButton>Save changes</SubmitButton>

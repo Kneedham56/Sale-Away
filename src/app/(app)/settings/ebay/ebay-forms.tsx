@@ -104,7 +104,7 @@ export function EbaySettingsForm({
       <Field label="Ship-from ZIP code">
         <input name="ebay_postal_code" className="input" inputMode="numeric" defaultValue={values.zip} />
       </Field>
-      <Field label="Custom SKU format" hint={`Tokens: {cost} {lot} {sourced} {listed} {n}. Example: ${buildSku(SAMPLE, sku, "2026-10-12")}`}>
+      <Field label="Custom SKU format" hint={`Tokens: {cost} {lot} {sourced} {listed}. The item number is added at the end. Example: ${buildSku(SAMPLE, sku, "2026-10-12")}`}>
         <input name="sku_template" className="input font-mono" value={sku} onChange={(e) => setSku(e.target.value)} />
       </Field>
       {state && !state.ok && <p className="text-sm text-danger">{state.error}</p>}

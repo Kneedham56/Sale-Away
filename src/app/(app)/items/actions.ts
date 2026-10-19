@@ -11,6 +11,7 @@ import { attempt, bool, FormError, isoDate, number, requiredText, text, type Act
 import type { ItemStatus } from "@/lib/format";
 import { endListing, reviseListing } from "@/lib/ebay/publish";
 import { ebayModeFor } from "@/lib/ebay/mode";
+import { cleanMeasurements } from "@/lib/measurements";
 
 export type NewPhoto = { storage_path: string; jpeg_path: string | null; thumb_path: string | null };
 type Db = Awaited<ReturnType<typeof createClient>>;
@@ -23,6 +24,15 @@ async function db() {
 function must<T>(r: { data: T; error: { message: string } | null }): NonNullable<T> {
   if (r.error) throw new Error(r.error.message);
   return r.data as NonNullable<T>;
+}
+
+function measurementsFrom(fd: FormData) {
+  try {
+    const list = cleanMeasurements(JSON.parse(text(fd, "measurements") ?? "[]"));
+    return list.length ? list : null;
+  } catch {
+    return null;
+  }
 }
 
 /** Remembers new categories and storage spots so they show up in the pick lists. */
@@ -106,6 +116,20 @@ export async function updateItem(_prev: unknown, fd: FormData): Promise<ActionRe
     const fields = itemFields(fd);
     const source_id = await resolveSource(supabase, fd);
     const before = must(await supabase.from("items").select("list_price, title, status").eq("id", id).single());
+    const oldPrice = before.list_price === null ? null : Number(before.list_price);
+    // eBay first: if the live listing can't take the change, nothing is saved (unless she says save anyway)
+    const note =
+      before.status === "listed"
+        ? await syncToEbay(
+            supabase,
+            id,
+            {
+              price: fields.list_price !== null && fields.list_price !== oldPrice ? fields.list_price : undefined,
+              title: fields.title !== before.title ? fields.title : undefined,
+            },
+            bool(fd, "ebay_skip")
+          )
+        : null;
     must(
       await supabase
         .from("items")
@@ -120,10 +144,10 @@ export async function updateItem(_prev: unknown, fd: FormData): Promise<ActionRe
           height_in: number(fd, "height_in", "Height"),
           sku: text(fd, "sku"),
           ebay_item_id: text(fd, "ebay_item_id"),
+          ...(fd.has("measurements") ? { measurements: measurementsFrom(fd) } : {}),
         })
         .eq("id", id)
     );
-    const oldPrice = before.list_price === null ? null : Number(before.list_price);
     if (oldPrice !== null && fields.list_price !== null && oldPrice !== fields.list_price) {
       await supabase.from("item_events").insert({
         item_id: id,
@@ -133,14 +157,6 @@ export async function updateItem(_prev: unknown, fd: FormData): Promise<ActionRe
       });
     }
     await rememberLookups(supabase, fields.category, fields.storage_location);
-    // Keep the live eBay listing in step with what she just changed
-    const note =
-      before.status === "listed"
-        ? await syncToEbay(supabase, id, {
-            price: fields.list_price !== null && fields.list_price !== oldPrice ? fields.list_price : undefined,
-            title: fields.title !== before.title ? fields.title : undefined,
-          })
-        : null;
     refresh();
     return note;
   });
@@ -148,22 +164,25 @@ export async function updateItem(_prev: unknown, fd: FormData): Promise<ActionRe
 
 const EXIT_STATUSES: ItemStatus[] = ["donated", "damaged", "kept", "discarded"];
 
-/** When an item leaves Listed without selling on eBay, take it off eBay too (or say how). */
-async function takeOffEbay(supabase: Db, itemId: string): Promise<string | null> {
+/**
+ * When an item leaves Listed without selling on eBay, take it off eBay first. Throws (so nothing changes in Sale Away)
+ * if eBay can't be updated, unless `force` (she ticked "save it in Sale Away anyway").
+ */
+async function takeOffEbay(supabase: Db, itemId: string, force = false): Promise<string | null> {
   const { data: it } = await supabase.from("items").select("ebay_ended_at").eq("id", itemId).single();
   if (it?.ebay_ended_at) return null; // already off eBay (e.g. FLYP ended it)
   const me = await requireMember();
   const mode = await ebayModeFor(me.workspace.id);
-  const r = await endListing(supabase, itemId, mode.env, mode.canPublish, me.userId, me.workspace.id);
+  const r = await endListing(supabase, itemId, mode.env, mode.canPublish, me.userId, me.workspace.id, { force });
   return r.note;
 }
 
-/** Price / title change on a listed item: send it to the live eBay listing too. */
-async function syncToEbay(supabase: Db, itemId: string, changes: { price?: number; title?: string }): Promise<string | null> {
+/** Price / title change on a listed item: send it to the live eBay listing first (throws if eBay says no). */
+async function syncToEbay(supabase: Db, itemId: string, changes: { price?: number; title?: string }, force = false): Promise<string | null> {
   if (changes.price === undefined && !changes.title) return null;
   const me = await requireMember();
   const mode = await ebayModeFor(me.workspace.id);
-  return reviseListing(supabase, itemId, changes, mode.env, mode.canPublish, me.userId, me.workspace.id);
+  return reviseListing(supabase, itemId, changes, mode.env, mode.canPublish, me.userId, me.workspace.id, { force });
 }
 const ACTIVE_STATUSES: ItemStatus[] = ["intake", "unlisted", "ready_to_list", "listed"];
 
@@ -196,6 +215,9 @@ export async function changeStatus(_prev: unknown, fd: FormData): Promise<Action
       patch.date_exited = null;
       patch.date_sold = null;
     }
+    // Leaving Listed without selling (taken down, or back to inventory): end the eBay listing first
+    const leavingListed = before.status === "listed" && (EXIT_STATUSES.includes(status) || ["intake", "unlisted", "ready_to_list"].includes(status));
+    const note = leavingListed ? await takeOffEbay(supabase, id, bool(fd, "ebay_skip")) : null;
     must(await supabase.from("items").update(patch).eq("id", id));
 
     if (status === "damaged") {
@@ -214,9 +236,6 @@ export async function changeStatus(_prev: unknown, fd: FormData): Promise<Action
       new_value: status,
       note: text(fd, "note"),
     });
-    // Leaving Listed without selling (taken down, or back to inventory): end the eBay listing too
-    const leavingListed = before.status === "listed" && (EXIT_STATUSES.includes(status) || ["intake", "unlisted", "ready_to_list"].includes(status));
-    const note = leavingListed ? await takeOffEbay(supabase, id) : null;
     refresh();
     return note;
   });
@@ -228,21 +247,24 @@ export async function logItemEvent(_prev: unknown, fd: FormData): Promise<Action
     const id = requiredText(fd, "id", "Item id");
     const action = requiredText(fd, "action", "Action");
     const newPrice = number(fd, "new_price", "New price");
+    const force = bool(fd, "ebay_skip");
     let old_value: string | null = null;
+    let note: string | null = null;
     if (newPrice !== null) {
-      const before = must(await supabase.from("items").select("list_price").eq("id", id).single());
+      const before = must(await supabase.from("items").select("list_price, status").eq("id", id).single());
       old_value = before.list_price === null ? null : String(before.list_price);
+      // eBay first; if it won't take the new price, nothing changes here either
+      if (before.status === "listed" && old_value !== String(newPrice) && !/^removed/i.test(action)) {
+        note = await syncToEbay(supabase, id, { price: newPrice }, force);
+      }
       must(await supabase.from("items").update({ list_price: newPrice }).eq("id", id));
     }
     if (/^relist/i.test(action)) {
       must(await supabase.from("items").update({ date_listed: await todayIso() }).eq("id", id));
     }
-    let note: string | null = null;
     if (/^removed/i.test(action)) {
-      note = await takeOffEbay(supabase, id);
+      note = await takeOffEbay(supabase, id, force);
       must(await supabase.from("items").update({ status: "unlisted" }).eq("id", id));
-    } else if (newPrice !== null && old_value !== String(newPrice)) {
-      note = await syncToEbay(supabase, id, { price: newPrice });
     }
     must(
       await supabase.from("item_events").insert({
@@ -350,7 +372,13 @@ export async function markSold(_prev: unknown, fd: FormData): Promise<ActionResu
     must(await supabase.from("items").update({ status: "sold", date_sold: soldDate }).eq("id", itemId));
     await supabase.from("item_events").insert({ item_id: itemId, action: "Sold", note: `${platform} for $${gross}` });
     // Sold somewhere else: take the eBay listing down too (FLYP does this today for her other sites)
-    const note = platform !== "ebay" ? await takeOffEbay(supabase, itemId) : null;
+    let note: string | null = null;
+    if (platform !== "ebay") {
+      note = await takeOffEbay(supabase, itemId).catch(
+        (e: unknown) =>
+          `The sale is saved, but it's still live on eBay${e instanceof FormError && e.help?.fix === "reconnect" ? " (Sale Away isn't signed in to your eBay)" : ""}. End it on eBay so it can't sell twice.`
+      );
+    }
     return { itemId, note };
   });
   if (result.ok && result.data) {

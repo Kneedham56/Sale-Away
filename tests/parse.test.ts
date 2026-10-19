@@ -1,7 +1,8 @@
 import { test } from "node:test";
 import assert from "node:assert/strict";
 import { normalizeListing, parsePastedListing, parsePastedQuick, TITLE_MAX } from "../src/lib/ai/parse";
-import { buildSku } from "../src/lib/sku";
+import { buildSku, withItemNumber } from "../src/lib/sku";
+import { cleanMeasurements, looksLikeClothing, measurementsText } from "../src/lib/measurements";
 import { applyTemplate } from "../src/lib/listing-text";
 import { ebaySoldSearchUrl } from "../src/lib/ai/prompts";
 
@@ -42,11 +43,15 @@ test("quick check answer", () => {
   assert.equal(q.price_estimate, 8);
 });
 
-test("SKU encodes cost, lot, month listed and stays eBay-safe", () => {
-  const sku = buildSku({ cost: 2.5, lot_code: "GS #4-10/3/26", date_sourced: "2026-10-03", item_number: 42 }, "{cost}-{lot}-{listed}-{n}", "2026-10-12");
-  assert.equal(sku, "2p5-GS410326-1026-42");
-  assert.match(sku, /^[A-Za-z0-9\-_.]{1,50}$/);
-  assert.equal(buildSku({ cost: null, lot_code: null, date_sourced: null, item_number: 7 }, "", "2026-01-05"), "X-NA-0126-7");
+test("SKU follows her custom label and always ends in the item number", () => {
+  const sku = buildSku({ cost: 0.62, lot_code: "GS #3-1/18/25", date_sourced: "2025-01-18", item_number: 42 }, "{cost} {lot} {listed}", "2025-11-12");
+  assert.equal(sku, ".62 GS #3-1/18/25 11/2025 #42");
+  assert.equal(buildSku({ cost: 1, lot_code: "GS #8-10/10/26", date_sourced: null, item_number: 11089 }, "", "2026-10-19"), "1.00 GS #8-10/10/26 10/2026 #11089");
+  assert.equal(buildSku({ cost: null, lot_code: null, date_sourced: null, item_number: 7 }, "{cost}-{lot}-{n}", "2026-01-05"), "X-NA-7");
+  // Two items from the same trip, same cost, same month never share a SKU
+  assert.notEqual(withItemNumber("1.00 GS #8-10/10/26 10/2026", 11089), withItemNumber("1.00 GS #8-10/10/26 10/2026", 11090));
+  assert.equal(withItemNumber("1.00 GS #8 #11089", 11089), "1.00 GS #8 #11089");
+  assert.ok(withItemNumber("x".repeat(80), 11089).length <= 50);
 });
 
 test("description template", () => {
@@ -68,4 +73,13 @@ test("cleanup matching finds a retitled listing", () => {
   ];
   assert.equal(bestMatch("Express Trench Coat Womens Small Pink Double Breasted Belt Lined Long", cands)?.value, "a");
   assert.equal(bestMatch("Hello Kitty Plush Mascot", cands), null);
+});
+
+test("measurements go into the description in inches", () => {
+  const list = cleanMeasurements([{ name: "Pit to pit", value: "20" }, { name: "Length", value: "27.5" }, { name: "Waist", value: "" }, { name: "Heel height", value: "3 1/2" }]);
+  assert.equal(list.length, 3);
+  assert.equal(measurementsText(list), "Measurements (laid flat):\nPit to pit: 20 in\nLength: 27.5 in\nHeel height: 3 1/2 in");
+  assert.equal(measurementsText([]), "");
+  assert.ok(looksLikeClothing("Womens Tops", null));
+  assert.ok(!looksLikeClothing("Pyrex mixing bowl", "Housewares"));
 });

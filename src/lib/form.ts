@@ -1,6 +1,16 @@
 // Small FormData readers. Blank or placeholder input becomes null (unknown), never 0.
 
-export type ActionResult<T = void> = { ok: true; data?: T } | { ok: false; error: string };
+/** What she can do about a failed action (shown by <ActionError>). */
+export type ErrorHelp = {
+  /** reconnect: sign in to eBay again · settings: fix a setting · edit: change the item · retry: try again later */
+  fix?: "reconnect" | "settings" | "edit" | "retry" | "doc";
+  /** The change can still be saved in Sale Away only (she'll fix eBay by hand) */
+  canForce?: boolean;
+  /** The technical message, for Doc */
+  detail?: string;
+};
+
+export type ActionResult<T = void> = { ok: true; data?: T } | { ok: false; error: string; help?: ErrorHelp };
 
 export function text(fd: FormData, key: string): string | null {
   const v = fd.get(key);
@@ -35,17 +45,25 @@ export function bool(fd: FormData, key: string): boolean {
   return v === "on" || v === "true" || v === "1";
 }
 
-export class FormError extends Error {}
+export class FormError extends Error {
+  constructor(
+    message: string,
+    public help?: ErrorHelp
+  ) {
+    super(message);
+  }
+}
 
 /** Runs an action body, turning thrown errors into a friendly result. */
 export async function attempt<T>(fn: () => Promise<T>): Promise<ActionResult<T>> {
   try {
     return { ok: true, data: await fn() };
   } catch (e) {
-    if (e instanceof FormError) return { ok: false, error: e.message };
+    if (e instanceof FormError) return { ok: false, error: e.message, ...(e.help ? { help: e.help } : {}) };
     // Next's redirect()/notFound() throw special errors that must propagate
     if (e && typeof e === "object" && "digest" in e) throw e;
     console.error(e);
-    return { ok: false, error: e instanceof Error ? e.message : "Something went wrong." };
+    const detail = e instanceof Error ? e.message : String(e);
+    return { ok: false, error: detail || "Something went wrong.", help: { fix: "doc", detail } };
   }
 }

@@ -39,6 +39,10 @@ export interface EbayClient {
   withdrawOffer(offerId: string): Promise<void>;
   /** Change price on a listing the app published (Inventory API offer) */
   updateOfferPrice(offerId: string, sku: string, price: number): Promise<void>;
+  /** Change the title of a listing the app published (rewrites its inventory item) */
+  updateInventoryTitle(sku: string, title: string): Promise<void>;
+  /** Offers eBay already has for this SKU (any listing, including ones made in Seller Hub) */
+  findOffers(sku: string): Promise<{ offerId: string; status: string; listingId: string | null }[]>;
   /** Listings made in Seller Hub / the eBay app (Trading API): change price or title, or end it */
   reviseLegacyListing(listingId: string, changes: { price?: number; title?: string }): Promise<void>;
   endLegacyListing(listingId: string): Promise<void>;
@@ -370,6 +374,27 @@ class RestEbayClient implements EbayClient {
     );
     const bad = data.responses?.find((r) => r.statusCode >= 300);
     if (bad) throw new EbayError(`eBay: ${bad.errors?.[0]?.message ?? "price update failed"}`, bad.statusCode, data);
+  }
+
+  async updateInventoryTitle(sku: string, title: string): Promise<void> {
+    const path = `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`;
+    const { data } = await this.call<Record<string, unknown> & { product?: Record<string, unknown> }>(path, { user: true });
+    const { sku: _sku, locale: _locale, ...rest } = data;
+    void _sku;
+    void _locale;
+    await this.call(path, { user: true, method: "PUT", body: { ...rest, product: { ...data.product, title } } });
+  }
+
+  async findOffers(sku: string) {
+    const r = await this.call<{ offers?: { offerId: string; status: string; listing?: { listingId?: string } }[] }>(
+      `/sell/inventory/v1/offer?sku=${encodeURIComponent(sku)}&marketplace_id=${MARKETPLACE}`,
+      { user: true }
+    ).catch((e) => {
+      // eBay answers 404 (or 400 "invalid SKU") when it has never seen this SKU
+      if (e instanceof EbayError && (e.status === 404 || e.status === 400)) return { data: { offers: [] } };
+      throw e;
+    });
+    return (r.data.offers ?? []).map((o) => ({ offerId: o.offerId, status: o.status, listingId: o.listing?.listingId ?? null }));
   }
 
   /** One Trading API (XML) call; listings made outside the Inventory API can only be changed this way. */

@@ -1,3 +1,4 @@
+import { DEFAULT_SKU_TEMPLATE } from "@/lib/sku";
 import type { Metadata } from "next";
 import Link from "next/link";
 import { requireMember } from "@/lib/auth";
@@ -169,7 +170,7 @@ export default async function EbaySettingsPage({ searchParams }: PageProps<"/set
             payment: saved.payment,
             return: saved.return,
             zip: typeof settings.ebay_postal_code === "string" ? settings.ebay_postal_code : "",
-            sku: typeof settings.sku_template === "string" ? settings.sku_template : "{cost}-{lot}-{listed}-{n}",
+            sku: typeof settings.sku_template === "string" ? settings.sku_template : DEFAULT_SKU_TEMPLATE,
           }}
         />
       </section>

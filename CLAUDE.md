@@ -80,5 +80,15 @@ Insights = sales by month, trips, reports, expenses, taxes. `STAGE_STATUSES` in 
   her live listings hourly (Trading API GetMyeBaySelling, works for Seller Hub listings), links them to items (backfills
   `ebay_item_id`, moves items listed elsewhere to Listed) and sets `items.ebay_ended_at` on listed items whose listing
   vanished without an eBay order -> "Sold somewhere else?" on Home / Listed / the item page. Flags only after a full read.
+- **eBay first, Sale Away is the source of truth:** taking a listed item down, sending it back to inventory, and price/title
+  edits call eBay BEFORE saving. If eBay refuses, nothing changes: `ebayProblem()` (`src/lib/ebay/errors.ts`) turns the error
+  into a plain message + fix (`ErrorHelp` on `ActionResult`), shown by `<ActionError>` (Connect eBay / Text Doc the details);
+  `<ForceCheckbox>` posts `ebay_skip` to save in Sale Away only. Selling elsewhere always saves the sale and warns instead.
+- **SKUs are unique:** eBay treats a SKU as one product, and posting under a SKU it already knows rewrites that listing. Her
+  custom labels repeat, so every app-posted SKU is her label + ` #<item number>` (`withItemNumber`), and publishing refuses
+  if eBay already has a live offer for the SKU.
+- Clothing/shoe/bag `items.measurements` ([{name, value}] inches) are appended to the eBay description.
+- Labels she buys on eBay are paid via PayPal, so eBay Finances never reports them: Outgoing's Shipped takes a label cost.
+  Her $21.95 eBay Store fee is added as a monthly expense by the sync (`addStoreFees`, settings `auto_store_fee`).
 - Every eBay write is logged to `activity_log`. Buyer names/addresses are scrubbed 30 days after shipping.
 - AI goes through `suggestListing()`; it only fills fields. She accepts (item -> Ready to List); the AI never publishes.

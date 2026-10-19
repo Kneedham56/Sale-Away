@@ -4,7 +4,7 @@ import { refresh } from "next/cache";
 import { createClient } from "@/lib/supabase/server";
 import { requireMember } from "@/lib/auth";
 import { todayIso } from "@/lib/dates";
-import { attempt, FormError, number, requiredText, text, type ActionResult } from "@/lib/form";
+import { FormError, number, requiredText, text } from "@/lib/form";
 
 // Temporary: one-time cleanup after connecting eBay. Every choice is applied right away and logged on the
 // item's history ("Cleanup: ...") so Doc can review it afterwards.
@@ -84,20 +84,4 @@ export async function resolveLiveListing(fd: FormData): Promise<void> {
     throw new FormError("Unknown choice.");
   }
   refresh();
-}
-
-/** Her answers to the plain-language questions (kept for Doc to read). */
-export async function saveCleanupAnswers(_prev: unknown, fd: FormData): Promise<ActionResult> {
-  return attempt(async () => {
-    const supabase = await db();
-    const { data: s } = await supabase.from("settings").select("value").eq("key", "cleanup_answers").maybeSingle();
-    const answers: Record<string, string> = { ...((s?.value as Record<string, string>) ?? {}) };
-    for (const [k, v] of fd.entries()) {
-      if (k.startsWith("q_") && typeof v === "string") answers[k] = v.trim();
-    }
-    answers.saved_at = new Date().toISOString();
-    const { error } = await supabase.from("settings").upsert({ key: "cleanup_answers", value: answers }, { onConflict: "workspace_id,key" });
-    if (error) throw new Error(error.message);
-    refresh();
-  });
 }

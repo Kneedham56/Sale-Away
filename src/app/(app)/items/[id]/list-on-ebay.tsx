@@ -5,6 +5,10 @@ import { publishToEbay } from "../../settings/ebay/actions";
 import { MoneyInput } from "@/components/fields";
 import { PackageFields, packageComplete, type PackageValue } from "@/components/package-fields";
 import type { Policy } from "@/lib/ebay/types";
+import type { ErrorHelp } from "@/lib/form";
+import { ActionError } from "@/components/action-error";
+import { MeasurementsField } from "@/components/measurements-field";
+import type { Measurement } from "@/lib/measurements";
 
 /** One tap from a reviewed item to a live eBay listing (moves it to Listed). */
 export function ListOnEbay({
@@ -16,6 +20,9 @@ export function ListOnEbay({
   policies,
   defaults,
   pkg,
+  measurements,
+  clothing,
+  context,
 }: {
   itemId: string;
   listPrice: number | null;
@@ -28,13 +35,19 @@ export function ListOnEbay({
   policies: { fulfillment: Policy[]; return: Policy[] } | null;
   defaults: { shipping: string | null; returns: string | null };
   pkg: PackageValue;
+  measurements: Measurement[];
+  /** Clothing, shoes or bags: ask for measurements up front */
+  clothing: boolean;
+  /** "Item #11089: title", for the problem report */
+  context: string;
 }) {
   const [open, setOpen] = useState(false);
   const [price, setPrice] = useState(listPrice === null ? "" : String(listPrice));
   const [shipping, setShipping] = useState(defaults.shipping ?? "");
   const [returns, setReturns] = useState(defaults.returns ?? "");
   const [pack, setPack] = useState<PackageValue>(pkg);
-  const [error, setError] = useState<string | null>(null);
+  const [measured, setMeasured] = useState<Measurement[]>(measurements);
+  const [error, setError] = useState<{ error: string; help?: ErrorHelp } | null>(null);
   const [done, setDone] = useState<{ url: string | null; preview: boolean } | null>(null);
   const [pending, start] = useTransition();
   const label = env === "sandbox" ? "List on test eBay" : env === "mock" ? "Preview eBay listing" : "List on eBay";
@@ -99,6 +112,8 @@ export function ListOnEbay({
         <MoneyInput value={price} onChange={(e) => setPrice(e.target.value)} />
       </label>
 
+      <MeasurementsField initial={measurements} onChange={setMeasured} startOpen={clothing} />
+
       {policies && (
         <>
           <label className="block">
@@ -139,7 +154,7 @@ export function ListOnEbay({
           </ul>
         </div>
       )}
-      {error && <p className="text-sm text-danger">{error}</p>}
+      {error && <ActionError error={error.error} help={error.help} context={context} />}
       <button
         type="button"
         className="btn-primary w-full"
@@ -151,8 +166,9 @@ export function ListOnEbay({
               shippingPolicyId: policies ? shipping : undefined,
               returnPolicyId: policies ? returns : undefined,
               ...pack,
+              measurements: measured,
             });
-            if (!r.ok) setError(r.error);
+            if (!r.ok) setError({ error: r.error, help: r.help });
             else setDone({ url: r.data!.url, preview: r.data!.dryRun });
           })
         }
