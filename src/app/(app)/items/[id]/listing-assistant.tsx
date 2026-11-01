@@ -132,7 +132,7 @@ export function ListingAssistant({
 
       {mode === "gemini" ? (
         <button type="button" className="btn-primary w-full" onClick={generate} disabled={pending}>
-          {pending ? "Thinking… (up to a minute)" : draft ? "Try again" : "Generate listing"}
+          {pending ? "Thinking… (up to 1½ minutes, keep this screen open)" : draft ? "Try again" : "Generate listing"}
         </button>
       ) : (
         <div className="space-y-3">

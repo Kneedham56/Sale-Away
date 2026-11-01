@@ -70,6 +70,15 @@ export async function saveEbaySettings(_prev: unknown, fd: FormData): Promise<Ac
   });
 }
 
+/** Next time an item of the same Sale Away category is posted, her store category is pre-picked. */
+async function rememberStoreCategory(supabase: Awaited<ReturnType<typeof createClient>>, itemId: string, path: string | null) {
+  const { data: item } = await supabase.from("items").select("category").eq("id", itemId).single();
+  if (!item?.category || !path) return;
+  const { data: row } = await supabase.from("settings").select("value").eq("key", "store_category_map").maybeSingle();
+  const map = { ...((row?.value as Record<string, string>) ?? {}), [item.category.toLowerCase()]: path };
+  await supabase.from("settings").upsert({ key: "store_category_map", value: map }, { onConflict: "workspace_id,key" });
+}
+
 /** Publishes one reviewed item. Mock mode returns a preview; sandbox never changes her real item. */
 export type ListingChoices = {
   shippingPolicyId?: string | null;
@@ -79,6 +88,8 @@ export type ListingChoices = {
   widthIn?: number | null;
   heightIn?: number | null;
   measurements?: Measurement[];
+  /** Store category path ("Holiday/Christmas"); null = Other */
+  storeCategory?: string | null;
 };
 
 export async function publishToEbay(itemId: string, price?: number | null, choices?: ListingChoices): Promise<ActionResult<PublishResult>> {
@@ -105,6 +116,10 @@ export async function publishToEbay(itemId: string, price?: number | null, choic
     if (choices?.measurements) {
       const list = cleanMeasurements(choices.measurements);
       patch.measurements = list.length ? list : null;
+    }
+    if (choices?.storeCategory !== undefined) {
+      patch.ebay_store_category = choices.storeCategory || null;
+      await rememberStoreCategory(supabase, itemId, choices.storeCategory || null);
     }
     if (Object.keys(patch).length) await supabase.from("items").update(patch).eq("id", itemId);
     const result = await publishItem(supabase, itemId, env, me.userId, me.workspace.id).catch((e: unknown) => {

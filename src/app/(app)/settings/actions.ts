@@ -82,7 +82,7 @@ export async function saveAiSettings(_prev: unknown, fd: FormData): Promise<Acti
     const supabase = await db();
     const rows = TEXT_SETTINGS.map((key) => ({ key, value: String(fd.get(key) ?? "").trim() }));
     for (const r of rows) {
-      if (/model$/.test(r.key) && r.value && !/^[a-z0-9.\-]+$/i.test(r.value)) throw new FormError("Model names look like gemini-flash-latest.");
+      if (/model$/.test(r.key) && r.value && !/^[a-z0-9.\-]+$/i.test(r.value)) throw new FormError("Model names look like gemini-3.5-flash.");
     }
     const { error } = await supabase.from("settings").upsert(
       rows.map((r) => ({ ...r, updated_at: new Date().toISOString() })),

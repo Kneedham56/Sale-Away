@@ -32,7 +32,7 @@ export async function getAiSettings(supabase: SupabaseClient): Promise<AiSetting
     listingPrompt: text(s.ai_listing_prompt, DEFAULT_LISTING_PROMPT),
     quickPrompt: text(s.ai_quick_prompt, DEFAULT_QUICK_PROMPT),
     storeRules: text(s.store_rules, DEFAULT_STORE_RULES),
-    listingModel: text(s.ai_listing_model, "gemini-flash-latest"),
+    listingModel: text(s.ai_listing_model, "gemini-3.5-flash"),
     quickModel: text(s.ai_quick_model, "gemini-flash-lite-latest"),
   };
 }
@@ -114,9 +114,11 @@ export async function suggestListing(
       images,
       schema: LISTING_SCHEMA,
       fallbackModel: settings.quickModel,
+      // Past this, the faster model answers instead (her phone gives up on very long waits)
+      mainTimeoutMs: 75_000,
     });
     const suggestion = normalizeListing(result.json);
-    if (result.fellBack) suggestion.flags.unshift("The main model was busy or out of free quota, so the faster (less accurate) model answered. Check the price.");
+    if (result.fellBack) suggestion.flags.unshift("The main model was slow or busy, so the faster (less accurate) model answered. Check the price, or tap Try again later.");
     if (!images.length) suggestion.flags.unshift("No photos were sent; this is based on her notes only.");
     if (comps?.comps?.length) suggestion.comps = comps.comps;
     if (opts.validate && suggestion.category) {

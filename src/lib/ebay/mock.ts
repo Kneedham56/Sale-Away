@@ -166,6 +166,9 @@ export class MockEbayClient implements EbayClient {
   async findOffers() {
     return [];
   }
+  async getStoreCategories() {
+    return [];
+  }
   async reviseLegacyListing() {}
   async endLegacyListing() {}
 }

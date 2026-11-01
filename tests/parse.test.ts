@@ -3,6 +3,7 @@ import assert from "node:assert/strict";
 import { normalizeListing, parsePastedListing, parsePastedQuick, TITLE_MAX } from "../src/lib/ai/parse";
 import { buildSku, withItemNumber } from "../src/lib/sku";
 import { cleanMeasurements, looksLikeClothing, measurementsText } from "../src/lib/measurements";
+import { guessStoreCategory } from "../src/lib/store-category";
 import { applyTemplate } from "../src/lib/listing-text";
 import { ebaySoldSearchUrl } from "../src/lib/ai/prompts";
 
@@ -82,4 +83,19 @@ test("measurements go into the description in inches", () => {
   assert.equal(measurementsText([]), "");
   assert.ok(looksLikeClothing("Womens Tops", null));
   assert.ok(!looksLikeClothing("Pyrex mixing bowl", "Housewares"));
+});
+
+test("store category guess follows her categories and remembers her picks", () => {
+  const cats = ["Men's", "Men's/Shirts", "Women's", "Women's/Tops", "Women's/Dresses & Skirts", "Toys & Games", "Housewares", "Books, Music & Video", "Crafts & Hobbies", "Holiday", "Holiday/Christmas", "Other"].map(
+    (path, i) => ({ id: String(i), path, label: path.replace("/", " › ") })
+  );
+  const guess = (category: string, title = "", learned = {}) => guessStoreCategory(cats, { category, ebay_category_name: null, title }, learned)?.path ?? null;
+  assert.equal(guess("Housewares"), "Housewares");
+  assert.equal(guess("Holiday", "Fitz and Floyd Christmas Village"), "Holiday/Christmas");
+  assert.equal(guess("DVD & Media"), "Books, Music & Video");
+  assert.equal(guess("Women SS Shirts"), "Women's/Tops");
+  assert.equal(guess("Mens LS Shirts"), "Men's/Shirts");
+  assert.equal(guess("Hobbies"), "Crafts & Hobbies");
+  assert.equal(guess("Hats"), null);
+  assert.equal(guess("Hats", "", { hats: "Women's" }), "Women's");
 });

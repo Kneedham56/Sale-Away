@@ -64,7 +64,7 @@ export default async function SettingsPage() {
             ai_listing_prompt: DEFAULT_LISTING_PROMPT,
             ai_quick_prompt: DEFAULT_QUICK_PROMPT,
             store_rules: DEFAULT_STORE_RULES,
-            ai_listing_model: "gemini-flash-latest",
+            ai_listing_model: "gemini-3.5-flash",
             ai_quick_model: "gemini-flash-lite-latest",
           }}
         />

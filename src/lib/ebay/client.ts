@@ -1,4 +1,5 @@
 import "server-only";
+import type { StoreCategory } from "@/lib/store-category";
 import { credentials, ebayEnv, hasCredentials, hosts, MARKETPLACE, SCOPES, type EbayEnv } from "./config";
 import { getUserAccessToken } from "./tokens";
 import type {
@@ -30,6 +31,8 @@ export interface EbayClient {
   getActiveListings(): Promise<ActiveListing[]>;
   getTransactions(since: string): Promise<EbayTransaction[]>;
   getPolicies(): Promise<Policies>;
+  /** Her eBay Store's own categories (empty if she has no store) */
+  getStoreCategories(): Promise<StoreCategory[]>;
   ensureLocation(key: string, postalCode: string): Promise<void>;
   uploadImageFromUrl(url: string): Promise<{ imageUrl: string; expiresAt: string | null }>;
   putInventoryItem(item: InventoryItemPayload): Promise<void>;
@@ -79,6 +82,7 @@ export async function getAppToken(env: Exclude<EbayEnv, "mock">): Promise<string
 }
 
 const policyCache = new Map<string, { at: number; value: Policies }>();
+const storeCategoryCache = new Map<string, { at: number; value: StoreCategory[] }>();
 
 // ---------------------------------------------------------------------------
 // REST implementation (sandbox and production)
@@ -337,6 +341,7 @@ class RestEbayClient implements EbayClient {
         returnPolicyId: o.returnPolicyId,
         bestOfferTerms: { bestOfferEnabled: o.bestOffer },
       },
+      ...(o.storeCategoryPath ? { storeCategoryNames: [o.storeCategoryPath] } : {}),
     };
     const existing = await this.call<{ offers?: { offerId: string }[] }>(
       `/sell/inventory/v1/offer?sku=${encodeURIComponent(o.sku)}&marketplace_id=${MARKETPLACE}`,
@@ -395,6 +400,31 @@ class RestEbayClient implements EbayClient {
       throw e;
     });
     return (r.data.offers ?? []).map((o) => ({ offerId: o.offerId, status: o.status, listingId: o.listing?.listingId ?? null }));
+  }
+
+  async getStoreCategories(): Promise<StoreCategory[]> {
+    const key = `${this.env}:${this.workspaceId}`;
+    const cached = storeCategoryCache.get(key);
+    if (cached && Date.now() - cached.at < 60 * 60_000) return cached.value;
+    const xml = await this.trading("GetStore", "<CategoryStructureOnly>true</CategoryStructureOnly><LevelLimit>3</LevelLimit>");
+    const tree = xml.slice(xml.indexOf("<CustomCategories>"), xml.indexOf("</CustomCategories>") + 1);
+    const out: StoreCategory[] = [];
+    const trail: string[] = [];
+    let depth = 0;
+    const unescape = (s: string) => s.replace(/&amp;/g, "&").replace(/&apos;/g, "'").replace(/&quot;/g, '"').replace(/&lt;/g, "<").replace(/&gt;/g, ">");
+    for (const m of tree.matchAll(/<(\/?)(?:CustomCategory|ChildCategory)>|<CategoryID>(\d+)<\/CategoryID>\s*<Name>([^<]*)<\/Name>/g)) {
+      if (m[2] === undefined) {
+        // Opening a category leaves its parents on the trail; closing one drops it
+        depth += m[1] ? -1 : 1;
+        trail.length = m[1] ? depth : depth - 1;
+        continue;
+      }
+      trail[depth - 1] = unescape(m[3]);
+      trail.length = depth;
+      out.push({ id: m[2], path: trail.join("/"), label: trail.join(" › ") });
+    }
+    storeCategoryCache.set(key, { at: Date.now(), value: out });
+    return out;
   }
 
   /** One Trading API (XML) call; listings made outside the Inventory API can only be changed this way. */

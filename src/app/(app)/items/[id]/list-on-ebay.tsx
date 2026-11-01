@@ -9,6 +9,7 @@ import type { ErrorHelp } from "@/lib/form";
 import { ActionError } from "@/components/action-error";
 import { MeasurementsField } from "@/components/measurements-field";
 import type { Measurement } from "@/lib/measurements";
+import type { StoreCategory } from "@/lib/store-category";
 
 /** One tap from a reviewed item to a live eBay listing (moves it to Listed). */
 export function ListOnEbay({
@@ -18,6 +19,8 @@ export function ListOnEbay({
   problems,
   connected,
   policies,
+  storeCategories,
+  storeDefault,
   defaults,
   pkg,
   measurements,
@@ -33,6 +36,10 @@ export function ListOnEbay({
   connected: boolean;
   /** Her own eBay shipping and return policies (null in sample-data mode or if eBay didn't answer) */
   policies: { fulfillment: Policy[]; return: Policy[] } | null;
+  /** Her eBay Store's own categories (empty when she has no store or eBay didn't answer) */
+  storeCategories: StoreCategory[];
+  /** What she picked for this item before, or the best guess */
+  storeDefault: string | null;
   defaults: { shipping: string | null; returns: string | null };
   pkg: PackageValue;
   measurements: Measurement[];
@@ -47,6 +54,7 @@ export function ListOnEbay({
   const [returns, setReturns] = useState(defaults.returns ?? "");
   const [pack, setPack] = useState<PackageValue>(pkg);
   const [measured, setMeasured] = useState<Measurement[]>(measurements);
+  const [storeCategory, setStoreCategory] = useState(storeDefault ?? "");
   const [error, setError] = useState<{ error: string; help?: ErrorHelp } | null>(null);
   const [done, setDone] = useState<{ url: string | null; preview: boolean } | null>(null);
   const [pending, start] = useTransition();
@@ -112,6 +120,23 @@ export function ListOnEbay({
         <MoneyInput value={price} onChange={(e) => setPrice(e.target.value)} />
       </label>
 
+      {storeCategories.length > 0 && (
+        <label className="block">
+          <span className="mb-1 block text-sm font-medium">Store category</span>
+          <select className="input" value={storeCategory} onChange={(e) => setStoreCategory(e.target.value)}>
+            <option value="">Other (eBay&apos;s default)</option>
+            {storeCategories
+              .filter((c) => c.path !== "Other")
+              .map((c) => (
+                <option key={c.id} value={c.path}>
+                  {c.label}
+                </option>
+              ))}
+          </select>
+          <span className="mt-1 block text-xs text-muted">Where it shows in your eBay Store. Sale Away remembers your pick for this kind of item.</span>
+        </label>
+      )}
+
       <MeasurementsField initial={measurements} onChange={setMeasured} startOpen={clothing} />
 
       {policies && (
@@ -167,6 +192,7 @@ export function ListOnEbay({
               returnPolicyId: policies ? returns : undefined,
               ...pack,
               measurements: measured,
+              ...(storeCategories.length ? { storeCategory: storeCategory || null } : {}),
             });
             if (!r.ok) setError({ error: r.error, help: r.help });
             else setDone({ url: r.data!.url, preview: r.data!.dryRun });

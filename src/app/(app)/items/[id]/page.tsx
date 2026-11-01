@@ -12,6 +12,7 @@ import { StatusBadge } from "@/components/status-badge";
 import { ItemPhotos } from "./item-photos";
 import { StatusActions } from "./status-actions";
 import { cleanMeasurements, looksLikeClothing } from "@/lib/measurements";
+import { guessStoreCategory } from "@/lib/store-category";
 import { EditItemForm } from "./edit-item-form";
 import { deleteItem, resolveEndedListing } from "../actions";
 import { ConfirmButton } from "@/components/fields";
@@ -68,13 +69,21 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/ite
   const canList = mode.canPublish && ["intake", "unlisted", "ready_to_list"].includes(item.status);
   const connected = !!conn;
   // Her own eBay shipping / return policies for the List on eBay box (cached 10 min in the eBay client)
-  const ebayPolicies =
-    canList && connected && mode.env !== "mock"
-      ? await getEbayClient(mode.env, me.workspace.id)
+  const showBox = canList && connected && mode.env !== "mock";
+  const ebayClient = showBox ? getEbayClient(mode.env, me.workspace.id) : null;
+  const [ebayPolicies, storeCategories] = await Promise.all([
+    ebayClient
+      ? ebayClient
           .getPolicies()
           .then((p) => ({ fulfillment: p.fulfillment, return: p.return }))
           .catch(() => null)
-      : null;
+      : null,
+    ebayClient ? ebayClient.getStoreCategories().catch(() => []) : [],
+  ]);
+  const storeDefault =
+    item.ebay_store_category ??
+    guessStoreCategory(storeCategories, item, (lookups.settings.store_category_map ?? {}) as Record<string, string>)?.path ??
+    null;
   const savedPolicies = (lookups.settings.ebay_policies ?? {}) as PolicyDefaults;
   const listDefaults = {
     shipping: item.shipping_policy_id || (item.kind !== "general" && savedPolicies.fulfillment_media) || savedPolicies.fulfillment || null,
@@ -221,6 +230,8 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/ite
               problems={listProblems}
               connected={connected}
               policies={ebayPolicies}
+              storeCategories={storeCategories}
+              storeDefault={storeDefault}
               defaults={listDefaults}
               pkg={{
                 weightOz: item.weight_oz === null ? null : Number(item.weight_oz),

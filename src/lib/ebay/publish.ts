@@ -6,6 +6,7 @@ import { applyTemplate, type Specific } from "@/lib/listing-text";
 import { buildSku, withItemNumber } from "@/lib/sku";
 import { FormError } from "@/lib/form";
 import { cleanMeasurements, measurementsText } from "@/lib/measurements";
+import { guessStoreCategory } from "@/lib/store-category";
 import { getEbayClient } from "./client";
 import { ebayProblem } from "./errors";
 import type { EbayEnv } from "./config";
@@ -35,6 +36,8 @@ type PublishItem = {
   width_in: number | null;
   height_in: number | null;
   measurements?: unknown;
+  ebay_store_category?: string | null;
+  category?: string | null;
   sku: string | null;
   lot_code: string | null;
   date_sourced: string | null;
@@ -79,7 +82,8 @@ export function checkReady(item: PublishItem, photoCount: number, policies: Poli
   if (!item.title || item.title.length > 80) problems.push("Title missing or over 80 characters.");
   if (!item.list_price || Number(item.list_price) <= 0) problems.push("No list price.");
   if (!photoCount) problems.push("No photos.");
-  if (!item.ebay_category_id && !item.ebay_category_name) problems.push("No eBay category.");
+  if (!item.listing_description) problems.push("No listing yet: tap Generate listing (Listing assistant, below) first.");
+  else if (!item.ebay_category_id && !item.ebay_category_name) problems.push("No eBay category: tap Generate listing again.");
   if (!item.condition) problems.push("Condition (new / pre-owned) not set.");
   if (!(item.shipping_policy_id || policies.fulfillment)) problems.push("Pick a shipping policy.");
   if (!policies.payment) problems.push("Pick your usual payment policy (Settings → eBay).");
@@ -115,7 +119,7 @@ export async function publishItem(
     .from("settings")
     .select("key, value")
     .eq("workspace_id", ws)
-    .in("key", ["ebay_policies", "sku_template", "description_template", "ebay_postal_code"]);
+    .in("key", ["ebay_policies", "sku_template", "description_template", "ebay_postal_code", "store_category_map"]);
   const settings = Object.fromEntries((settingRows ?? []).map((r) => [r.key, r.value]));
   const policies = (settings.ebay_policies ?? {}) as PolicyDefaults;
   const { data: photos } = await supabase
@@ -149,6 +153,16 @@ export async function publishItem(
     categoryId = best?.categoryId ?? null;
   }
   if (!categoryId) throw new Error("Couldn't find an eBay category for this item.");
+  // Her eBay Store's own category: what she picked, else the best guess (bulk publish and Save & list don't ask)
+  const storeCategoryPath =
+    item.ebay_store_category ??
+    (env === "mock"
+      ? null
+      : guessStoreCategory(
+          await client.getStoreCategories().catch(() => []),
+          item,
+          (settings.store_category_map ?? {}) as Record<string, string>
+        )?.path ?? null);
 
   const measured = measurementsText(cleanMeasurements(item.measurements));
   const description = [
@@ -198,6 +212,7 @@ export async function publishItem(
     returnPolicyId: item.return_policy_id || policies.return!,
     merchantLocationKey: "home",
     bestOffer: true,
+    storeCategoryPath,
   };
 
   if (env === "mock") {
@@ -251,9 +266,20 @@ export async function publishItem(
     await client.ensureLocation("home", postal);
     await client.putInventoryItem(inventoryItem);
     await log(ws, actor, "ebay.inventory_item.put", { environment: env, itemId, sku });
-    const offerId = await client.upsertOffer(offer);
+    // A store category eBay won't take shouldn't stop the listing: post it under Other and log it for Doc
+    const storeRejected = (e: unknown) => !!offer.storeCategoryPath && /store/i.test(e instanceof Error ? e.message : "");
+    const withoutStore = async (e: unknown) => {
+      await log(ws, actor, "ebay.store_category_rejected", { environment: env, itemId, path: offer.storeCategoryPath, error: String(e) });
+      offer.storeCategoryPath = null;
+      return client.upsertOffer(offer);
+    };
+    let offerId = await client.upsertOffer(offer).catch((e: unknown) => (storeRejected(e) ? withoutStore(e) : Promise.reject(e)));
     await log(ws, actor, "ebay.offer.upsert", { environment: env, itemId, sku, offerId, price: offer.price });
-    const listingId = await client.publishOffer(offerId);
+    const listingId = await client.publishOffer(offerId).catch(async (e: unknown) => {
+      if (!storeRejected(e)) throw e;
+      offerId = await withoutStore(e);
+      return client.publishOffer(offerId);
+    });
     await log(ws, actor, "ebay.offer.publish", { environment: env, itemId, sku, offerId, listingId });
 
     await supabase.from("ebay_listings").upsert(

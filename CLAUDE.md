@@ -87,6 +87,12 @@ Insights = sales by month, trips, reports, expenses, taxes. `STAGE_STATUSES` in 
 - **SKUs are unique:** eBay treats a SKU as one product, and posting under a SKU it already knows rewrites that listing. Her
   custom labels repeat, so every app-posted SKU is her label + ` #<item number>` (`withItemNumber`), and publishing refuses
   if eBay already has a live offer for the SKU.
+- **Store categories:** her eBay Store has its own categories (Women's > Tops, Holiday > Christmas, ...). Each post sends
+  `storeCategoryNames` (eBay's form: "Holiday/Christmas", no leading slash): `items.ebay_store_category`, else
+  `guessStoreCategory()` (`src/lib/store-category.ts`) from her Sale Away category, learning her picks in settings
+  `store_category_map`. If eBay rejects it, the item still posts (under Other) and `ebay.store_category_rejected` is logged.
+- AI listing model: `gemini-3.5-flash` with low thinking (the `gemini-flash-latest` alias became slow, 1-4+ minutes).
+  `callGemini` hands over to the quick model after `mainTimeoutMs` (75s) so she always gets an answer.
 - Clothing/shoe/bag `items.measurements` ([{name, value}] inches) are appended to the eBay description.
 - Labels she buys on eBay are paid via PayPal, so eBay Finances never reports them: Outgoing's Shipped takes a label cost.
   Her $21.95 eBay Store fee is added as a monthly expense by the sync (`addStoreFees`, settings `auto_store_fee`).

@@ -13,7 +13,7 @@ import { LISTING_SCHEMA } from "../src/lib/ai/types";
 
 config({ path: ".env.local", quiet: true });
 const count = Number(process.argv[2]) || 20;
-const model = process.argv[3] || "gemini-flash-latest";
+const model = process.argv[3] || "gemini-3.5-flash";
 
 async function gemini(prompt: string) {
   const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent`, {

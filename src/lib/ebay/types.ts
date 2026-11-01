@@ -97,4 +97,6 @@ export type OfferPayload = {
   returnPolicyId: string;
   merchantLocationKey: string;
   bestOffer: boolean;
+  /** Her eBay Store category path, e.g. "Holiday/Christmas" */
+  storeCategoryPath?: string | null;
 };
