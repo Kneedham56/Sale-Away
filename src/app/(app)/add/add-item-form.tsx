@@ -69,7 +69,7 @@ export function AddItemForm({
     return itemId.current;
   }
 
-  function addFiles(files: FileList) {
+  function addFiles(files: File[]) {
     const id = getItemId();
     for (const file of Array.from(files)) {
       const key = crypto.randomUUID();

@@ -1,8 +1,9 @@
 "use client";
 
-import { useState, useTransition } from "react";
+import { useRef, useState, useTransition } from "react";
 import { addPhotos, deletePhoto, movePhoto } from "../actions";
 import { uploadPhoto } from "@/lib/photo-upload";
+import { SquareCamera } from "@/components/square-camera";
 
 type Photo = { id: string; url: string | null; thumbUrl: string | null };
 
@@ -11,9 +12,12 @@ export function ItemPhotos({ itemId, workspaceId, photos }: { itemId: string; wo
   const [uploading, setUploading] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
+  const [camera, setCamera] = useState(false);
+  // Shots from the square camera, saved together when she taps Done
+  const shotsRef = useRef<File[]>([]);
   const current = photos[Math.min(selected, photos.length - 1)];
 
-  async function onFiles(files: FileList | null) {
+  async function onFiles(files: FileList | File[] | null) {
     if (!files?.length) return;
     setError(null);
     setUploading(files.length);
@@ -63,6 +67,9 @@ export function ItemPhotos({ itemId, workspaceId, photos }: { itemId: string; wo
       )}
 
       <div className="flex flex-wrap gap-2">
+        <button type="button" className="btn-small" disabled={uploading > 0} onClick={() => setCamera(true)}>
+          Camera
+        </button>
         <label className="btn-small cursor-pointer">
           {uploading ? `Uploading ${uploading}…` : "+ Photos"}
           <input type="file" accept="image/*" multiple className="hidden" onChange={(e) => onFiles(e.target.files)} />
@@ -99,6 +106,18 @@ export function ItemPhotos({ itemId, workspaceId, photos }: { itemId: string; wo
         )}
       </div>
       {error && <p className="text-sm text-danger">{error}</p>}
+      {camera && (
+        <SquareCamera
+          onCapture={(file) => shotsRef.current.push(file)}
+          onClose={() => {
+            setCamera(false);
+            const files = shotsRef.current;
+            shotsRef.current = [];
+            onFiles(files);
+          }}
+          onFallback={() => setCamera(false)}
+        />
+      )}
     </div>
   );
 }

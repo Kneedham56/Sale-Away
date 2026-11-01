@@ -1,6 +1,7 @@
 "use client";
 
-import { useRef } from "react";
+import { useRef, useState } from "react";
+import { SquareCamera } from "./square-camera";
 import type { NewPhoto } from "@/app/(app)/items/actions";
 
 export type PendingPhoto = {
@@ -11,35 +12,47 @@ export type PendingPhoto = {
   result?: NewPhoto;
 };
 
-/** Two buttons: camera (one shot) and library (many). Uploads start as soon as photos are picked. */
+/** Two buttons: square camera (many shots) and library (many). Uploads start as soon as photos are taken or picked. */
 export function PhotoPicker({
   photos,
   onAdd,
   onRemove,
 }: {
   photos: PendingPhoto[];
-  onAdd: (files: FileList) => void;
+  onAdd: (files: File[]) => void;
   onRemove: (key: string) => void;
 }) {
   const cameraRef = useRef<HTMLInputElement>(null);
   const libraryRef = useRef<HTMLInputElement>(null);
+  const [camera, setCamera] = useState(false);
 
   function picked(e: React.ChangeEvent<HTMLInputElement>) {
-    if (e.target.files?.length) onAdd(e.target.files);
+    if (e.target.files?.length) onAdd(Array.from(e.target.files));
     e.target.value = "";
   }
 
   return (
     <div>
       <div className="grid grid-cols-2 gap-3">
-        <button type="button" className="btn-primary bg-coral" onClick={() => cameraRef.current?.click()}>
+        <button type="button" className="btn-primary bg-coral" onClick={() => setCamera(true)}>
           Take photo
         </button>
         <button type="button" className="btn-secondary" onClick={() => libraryRef.current?.click()}>
           From library
         </button>
       </div>
+      {/* The phone's own camera: only if the square camera can't open */}
       <input ref={cameraRef} type="file" accept="image/*" capture="environment" className="hidden" onChange={picked} />
+      {camera && (
+        <SquareCamera
+          onCapture={(file) => onAdd([file])}
+          onClose={() => setCamera(false)}
+          onFallback={() => {
+            setCamera(false);
+            cameraRef.current?.click();
+          }}
+        />
+      )}
       <input ref={libraryRef} type="file" accept="image/*" multiple className="hidden" onChange={picked} />
 
       {photos.length > 0 && (
