@@ -80,6 +80,18 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/ite
       : null,
     ebayClient ? ebayClient.getStoreCategories().catch(() => []) : [],
   ]);
+  // Item specifics eBay requires for this category that the listing doesn't have yet: asked for in the box
+  const haveSpecific = new Set(
+    ((item.item_specifics ?? []) as { name: string; value: string }[])
+      .filter((s) => s.value && !/^unknown$/i.test(s.value))
+      .map((s) => s.name.toLowerCase())
+  );
+  const requiredSpecifics =
+    ebayClient && item.ebay_category_id
+      ? (await ebayClient.getAspects(item.ebay_category_id).catch(() => []))
+          .filter((a) => a.required && !haveSpecific.has(a.name.toLowerCase()))
+          .map((a) => ({ name: a.name, values: a.values }))
+      : [];
   const storeDefault =
     item.ebay_store_category ??
     guessStoreCategory(storeCategories, item, (lookups.settings.store_category_map ?? {}) as Record<string, string>)?.path ??
@@ -232,6 +244,7 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/ite
               policies={ebayPolicies}
               storeCategories={storeCategories}
               storeDefault={storeDefault}
+              requiredSpecifics={requiredSpecifics}
               defaults={listDefaults}
               pkg={{
                 weightOz: item.weight_oz === null ? null : Number(item.weight_oz),

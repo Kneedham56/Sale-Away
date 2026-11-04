@@ -83,6 +83,7 @@ export async function getAppToken(env: Exclude<EbayEnv, "mock">): Promise<string
 
 const policyCache = new Map<string, { at: number; value: Policies }>();
 const storeCategoryCache = new Map<string, { at: number; value: StoreCategory[] }>();
+const aspectCache = new Map<string, { at: number; value: Aspect[] }>();
 
 // ---------------------------------------------------------------------------
 // REST implementation (sandbox and production)
@@ -158,6 +159,15 @@ class RestEbayClient implements EbayClient {
   }
 
   async getAspects(categoryId: string): Promise<Aspect[]> {
+    const key = `${this.env}:${categoryId}`;
+    const cached = aspectCache.get(key);
+    if (cached && Date.now() - cached.at < 24 * 60 * 60_000) return cached.value;
+    const value = await this.fetchAspects(categoryId);
+    aspectCache.set(key, { at: Date.now(), value });
+    return value;
+  }
+
+  private async fetchAspects(categoryId: string): Promise<Aspect[]> {
     const tree = await this.treeId();
     const { data } = await this.call<{
       aspects?: { localizedAspectName: string; aspectConstraint?: { aspectRequired?: boolean }; aspectValues?: { localizedValue: string }[] }[];

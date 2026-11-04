@@ -90,6 +90,8 @@ export type ListingChoices = {
   measurements?: Measurement[];
   /** Store category path ("Holiday/Christmas"); null = Other */
   storeCategory?: string | null;
+  /** Required item specifics she filled in the box (added to / replacing the listing's) */
+  specifics?: { name: string; value: string }[];
 };
 
 export async function publishToEbay(itemId: string, price?: number | null, choices?: ListingChoices): Promise<ActionResult<PublishResult>> {
@@ -116,6 +118,12 @@ export async function publishToEbay(itemId: string, price?: number | null, choic
     if (choices?.measurements) {
       const list = cleanMeasurements(choices.measurements);
       patch.measurements = list.length ? list : null;
+    }
+    if (choices?.specifics?.length) {
+      const { data: cur } = await supabase.from("items").select("item_specifics").eq("id", itemId).single();
+      const added = choices.specifics.map((s) => ({ name: s.name.slice(0, 65), value: s.value.slice(0, 65) }));
+      const names = new Set(added.map((s) => s.name.toLowerCase()));
+      patch.item_specifics = [...((cur?.item_specifics ?? []) as { name: string; value: string }[]).filter((s) => !names.has(s.name.toLowerCase())), ...added];
     }
     if (choices?.storeCategory !== undefined) {
       patch.ebay_store_category = choices.storeCategory || null;

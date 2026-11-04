@@ -85,7 +85,8 @@ export async function loadItemNotes(supabase: SupabaseClient, itemId: string, ex
 export type CompsProvider = (query: string) => Promise<{ text: string; comps: ListingSuggestion["comps"] } | null>;
 export type SpecificsValidator = (
   categoryName: string,
-  specifics: ListingSuggestion["item_specifics"]
+  specifics: ListingSuggestion["item_specifics"],
+  title?: string
 ) => Promise<{ categoryId: string | null; missing: string[] } | null>;
 
 /**
@@ -122,7 +123,7 @@ export async function suggestListing(
     if (!images.length) suggestion.flags.unshift("No photos were sent; this is based on her notes only.");
     if (comps?.comps?.length) suggestion.comps = comps.comps;
     if (opts.validate && suggestion.category) {
-      const v = await opts.validate(suggestion.category, suggestion.item_specifics).catch(() => null);
+      const v = await opts.validate(suggestion.category, suggestion.item_specifics, suggestion.title).catch(() => null);
       if (v) {
         suggestion.ebay_category_id = v.categoryId;
         if (v.missing.length) suggestion.flags.push(`eBay requires these specifics: ${v.missing.join(", ")}.`);

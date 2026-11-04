@@ -7,6 +7,7 @@ import { buildSku, withItemNumber } from "@/lib/sku";
 import { FormError } from "@/lib/form";
 import { cleanMeasurements, measurementsText } from "@/lib/measurements";
 import { guessStoreCategory } from "@/lib/store-category";
+import { resolveCategory } from "./category";
 import { getEbayClient } from "./client";
 import { ebayProblem } from "./errors";
 import type { EbayEnv } from "./config";
@@ -149,7 +150,7 @@ export async function publishItem(
 
   let categoryId: string | null = item.ebay_category_id;
   if (!categoryId) {
-    const [best] = await client.suggestCategories(item.ebay_category_name ?? item.title);
+    const best = await resolveCategory((q) => client.suggestCategories(q), item.ebay_category_name, item.title);
     categoryId = best?.categoryId ?? null;
   }
   if (!categoryId) throw new Error("Couldn't find an eBay category for this item.");

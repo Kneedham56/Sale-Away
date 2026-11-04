@@ -21,6 +21,7 @@ export function ListOnEbay({
   policies,
   storeCategories,
   storeDefault,
+  requiredSpecifics,
   defaults,
   pkg,
   measurements,
@@ -40,6 +41,8 @@ export function ListOnEbay({
   storeCategories: StoreCategory[];
   /** What she picked for this item before, or the best guess */
   storeDefault: string | null;
+  /** Item specifics eBay requires for this category that the listing is missing (with eBay's suggested values) */
+  requiredSpecifics: { name: string; values: string[] }[];
   defaults: { shipping: string | null; returns: string | null };
   pkg: PackageValue;
   measurements: Measurement[];
@@ -55,6 +58,7 @@ export function ListOnEbay({
   const [pack, setPack] = useState<PackageValue>(pkg);
   const [measured, setMeasured] = useState<Measurement[]>(measurements);
   const [storeCategory, setStoreCategory] = useState(storeDefault ?? "");
+  const [specifics, setSpecifics] = useState<Record<string, string>>({});
   const [error, setError] = useState<{ error: string; help?: ErrorHelp } | null>(null);
   const [done, setDone] = useState<{ url: string | null; preview: boolean } | null>(null);
   const [pending, start] = useTransition();
@@ -103,6 +107,7 @@ export function ListOnEbay({
     ...(policies && !shipping ? ["Pick a shipping policy."] : []),
     ...(policies && !returns ? ["Pick a return policy."] : []),
     ...(needsPackage && !packageComplete(pack) ? ["This shipping policy is calculated: add the package weight and size."] : []),
+    ...requiredSpecifics.filter((r) => !specifics[r.name]?.trim()).map((r) => `eBay needs “${r.name}” for this category.`),
   ];
   const ready = missing.length === 0;
 
@@ -119,6 +124,29 @@ export function ListOnEbay({
         <span className="mb-1 block text-sm font-medium">Price (Best Offer stays on)</span>
         <MoneyInput value={price} onChange={(e) => setPrice(e.target.value)} />
       </label>
+
+      {requiredSpecifics.length > 0 && (
+        <div className="space-y-3 rounded-xl bg-coral/5 p-3">
+          <p className="text-sm font-medium">eBay requires these for this category</p>
+          {requiredSpecifics.map((r) => (
+            <label key={r.name} className="block">
+              <span className="mb-1 block text-sm">{r.name}</span>
+              <input
+                className="input"
+                list={`req-${r.name}`}
+                value={specifics[r.name] ?? ""}
+                onChange={(e) => setSpecifics({ ...specifics, [r.name]: e.target.value })}
+                placeholder={r.values[0] ? `e.g. ${r.values[0]}` : ""}
+              />
+              <datalist id={`req-${r.name}`}>
+                {r.values.map((v) => (
+                  <option key={v} value={v} />
+                ))}
+              </datalist>
+            </label>
+          ))}
+        </div>
+      )}
 
       {storeCategories.length > 0 && (
         <label className="block">
@@ -192,6 +220,9 @@ export function ListOnEbay({
               returnPolicyId: policies ? returns : undefined,
               ...pack,
               measurements: measured,
+              specifics: Object.entries(specifics)
+                .filter(([, v]) => v.trim())
+                .map(([name, value]) => ({ name, value: value.trim() })),
               ...(storeCategories.length ? { storeCategory: storeCategory || null } : {}),
             });
             if (!r.ok) setError({ error: r.error, help: r.help });

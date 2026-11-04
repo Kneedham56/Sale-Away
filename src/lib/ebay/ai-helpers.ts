@@ -1,6 +1,7 @@
 import "server-only";
 import type { CompsProvider, SpecificsValidator } from "@/lib/ai/suggest";
 import { getAppLevelClient } from "./client";
+import { resolveCategory } from "./category";
 
 /**
  * eBay data for the AI, when app keys exist: active comps (Browse API) as context,
@@ -20,8 +21,8 @@ export async function ebayAiHelpers(): Promise<{ comps?: CompsProvider; validate
     };
   };
 
-  const validate: SpecificsValidator = async (categoryName, specifics) => {
-    const [best] = await client.suggestCategories(categoryName);
+  const validate: SpecificsValidator = async (categoryName, specifics, title) => {
+    const best = await resolveCategory((q) => client.suggestCategories(q), categoryName, title ?? categoryName);
     if (!best) return null;
     const aspects = await client.getAspects(best.categoryId);
     const have = new Set(specifics.filter((s) => s.value && !/^unknown$/i.test(s.value)).map((s) => s.name.toLowerCase()));

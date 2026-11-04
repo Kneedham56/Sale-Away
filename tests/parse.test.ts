@@ -4,6 +4,7 @@ import { normalizeListing, parsePastedListing, parsePastedQuick, TITLE_MAX } fro
 import { buildSku, withItemNumber } from "../src/lib/sku";
 import { cleanMeasurements, looksLikeClothing, measurementsText } from "../src/lib/measurements";
 import { guessStoreCategory } from "../src/lib/store-category";
+import { resolveCategory } from "../src/lib/ebay/category";
 import { applyTemplate } from "../src/lib/listing-text";
 import { ebaySoldSearchUrl } from "../src/lib/ai/prompts";
 
@@ -98,4 +99,17 @@ test("store category guess follows her categories and remembers her picks", () =
   assert.equal(guess("Hobbies"), "Crafts & Hobbies");
   assert.equal(guess("Hats"), null);
   assert.equal(guess("Hats", "", { hats: "Women's" }), "Women's");
+});
+
+test("eBay category: keep the suggestion that matches the AI's path, not eBay's first guess", async () => {
+  const s = (categoryId: string, path: string) => ({ categoryId, categoryName: path.split(" > ").pop()!, path });
+  const byQuery: Record<string, ReturnType<typeof s>[]> = {
+    full: [s("280", "Books & Magazines > Magazines"), s("1379", "Collectibles > Disneyana > Contemporary (1968-Now) > Limited Editions")],
+    leaf: [s("1377", "Collectibles > Disneyana > Contemporary (1968-Now) > Housewares > Other Contemp Disney Houseware")],
+    title: [s("165566", "Collectibles > Kitchen & Home > Baking Accs. & Cake Decorating > Cookie Stamps")],
+  };
+  const ai = "Collectibles > Disneyana > Contemporary (1968-Now) > Housewares > Other Disney Housewares";
+  const suggest = async (q: string) => (q === ai ? byQuery.full : q === "Other Disney Housewares" ? byQuery.leaf : byQuery.title);
+  assert.equal((await resolveCategory(suggest, ai, "Disney Goofy Cookie Stamp"))?.categoryId, "1377");
+  assert.equal((await resolveCategory(suggest, null, "Disney Goofy Cookie Stamp"))?.categoryId, "165566");
 });
