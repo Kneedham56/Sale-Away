@@ -8,9 +8,10 @@ import { FormError } from "@/lib/form";
 import { cleanMeasurements, measurementsText } from "@/lib/measurements";
 import { guessStoreCategory } from "@/lib/store-category";
 import { resolveCategory } from "./category";
-import { getEbayClient } from "./client";
+import { getEbayClient, type EbayClient, type InventoryPatch } from "./client";
 import { ebayProblem } from "./errors";
 import type { EbayEnv } from "./config";
+import { describeChanges, hasChanges, mergeLegacyPictures, packageDims, type LegacyRevision, type ListingChanges } from "./revise";
 
 export type PolicyDefaults = { fulfillment?: string; fulfillment_media?: string; payment?: string; return?: string };
 
@@ -71,9 +72,13 @@ function conditionPreferences(item: Pick<PublishItem, "condition" | "condition_g
  * `allowed` comes from eBay's Metadata API; if it's empty we fall back to the first preference.
  */
 export function conditionFor(item: Pick<PublishItem, "condition" | "condition_grade">, allowed: number[] = []): string {
+  return CONDITION_ENUM[conditionIdFor(item, allowed)] ?? "USED_EXCELLENT";
+}
+
+/** Same pick as `conditionFor`, as eBay's numeric condition id (what Seller Hub listings use). */
+export function conditionIdFor(item: Pick<PublishItem, "condition" | "condition_grade">, allowed: number[] = []): number {
   const prefs = conditionPreferences(item);
-  const pick = allowed.length ? prefs.find((id) => allowed.includes(id)) ?? (item.condition === "new" ? allowed[0] : allowed.find((id) => id >= 2750 && id < 7000) ?? allowed[0]) : prefs[0];
-  return CONDITION_ENUM[pick] ?? "USED_EXCELLENT";
+  return allowed.length ? prefs.find((id) => allowed.includes(id)) ?? (item.condition === "new" ? allowed[0] : allowed.find((id) => id >= 2750 && id < 7000) ?? allowed[0]) : prefs[0];
 }
 
 export type PublishCheck = { ok: boolean; problems: string[] };
@@ -95,6 +100,54 @@ export function checkReady(item: PublishItem, photoCount: number, policies: Poli
 
 async function log(ws: string, actor: string | null, action: string, detail: Record<string, unknown>) {
   await createAdminClient().from("activity_log").insert({ workspace_id: ws, actor, action, detail });
+}
+
+/**
+ * Her photos (in order, up to 24) as eBay-hosted links. eBay copies each one from a short-lived signed link; the
+ * eBay link is remembered on the photo so later edits only send the new ones.
+ */
+async function ebayPhotoUrls(
+  supabase: SupabaseClient,
+  client: EbayClient,
+  itemId: string,
+  opts: { fallbackToSigned?: boolean } = {}
+): Promise<string[]> {
+  const { data: photos } = await supabase
+    .from("item_photos")
+    .select("id, storage_path, jpeg_path, ebay_picture_url, ebay_picture_expires_at")
+    .eq("item_id", itemId)
+    .order("sort_order")
+    .order("created_at")
+    .limit(24);
+  const list = photos ?? [];
+  // An unused eBay picture expires; one past its date gets sent again (harmless if a listing already uses it)
+  const fresh = (p: (typeof list)[number]) =>
+    !!p.ebay_picture_url && (!p.ebay_picture_expires_at || new Date(p.ebay_picture_expires_at).getTime() > Date.now() + 3600_000);
+  const todo = list.filter((p) => !fresh(p));
+  const { data: signed } = todo.length
+    ? await supabase.storage.from(PHOTO_BUCKET).createSignedUrls(todo.map((p) => p.jpeg_path ?? p.storage_path), 3600)
+    : { data: [] };
+  const links = new Map<string, string>();
+  // A few at a time: eBay fetches each photo itself, and 14 one after another is slow
+  for (let i = 0; i < todo.length; i += 4) {
+    await Promise.all(
+      todo.slice(i, i + 4).map(async (p, j) => {
+        const url = signed?.[i + j]?.signedUrl;
+        if (!url) return;
+        try {
+          const img = await client.uploadImageFromUrl(url);
+          links.set(p.id, img.imageUrl);
+          if (client.env !== "mock") {
+            await supabase.from("item_photos").update({ ebay_picture_url: img.imageUrl, ebay_picture_expires_at: img.expiresAt }).eq("id", p.id);
+          }
+        } catch (e) {
+          if (opts.fallbackToSigned) links.set(p.id, url);
+          else throw e;
+        }
+      })
+    );
+  }
+  return list.map((p) => (fresh(p) ? p.ebay_picture_url! : links.get(p.id))).filter((u): u is string => !!u);
 }
 
 export type PublishResult = {
@@ -123,15 +176,9 @@ export async function publishItem(
     .in("key", ["ebay_policies", "sku_template", "description_template", "ebay_postal_code", "store_category_map"]);
   const settings = Object.fromEntries((settingRows ?? []).map((r) => [r.key, r.value]));
   const policies = (settings.ebay_policies ?? {}) as PolicyDefaults;
-  const { data: photos } = await supabase
-    .from("item_photos")
-    .select("storage_path, jpeg_path")
-    .eq("item_id", itemId)
-    .order("sort_order")
-    .order("created_at")
-    .limit(24);
+  const { count: photoCount } = await supabase.from("item_photos").select("id", { count: "exact", head: true }).eq("item_id", itemId);
 
-  const check = checkReady(item, photos?.length ?? 0, policies);
+  const check = checkReady(item, photoCount ?? 0, policies);
   if (!check.ok) throw new Error(`Not ready: ${check.problems.join(" ")}`);
 
   const client = getEbayClient(env, ws);
@@ -248,18 +295,7 @@ export async function publishItem(
       );
     }
 
-    // Photos: eBay copies each from a short-lived signed link
-    const paths = (photos ?? []).map((p) => p.jpeg_path ?? p.storage_path);
-    const { data: signed } = await supabase.storage.from(PHOTO_BUCKET).createSignedUrls(paths, 3600);
-    for (const s of signed ?? []) {
-      if (!s.signedUrl) continue;
-      try {
-        const img = await client.uploadImageFromUrl(s.signedUrl);
-        inventoryItem.imageUrls.push(img.imageUrl);
-      } catch {
-        inventoryItem.imageUrls.push(s.signedUrl);
-      }
-    }
+    inventoryItem.imageUrls = await ebayPhotoUrls(supabase, client, itemId, { fallbackToSigned: true });
     if (!inventoryItem.imageUrls.length) throw new Error("No photos could be uploaded to eBay.");
 
     const postal = String(settings.ebay_postal_code ?? "").trim();
@@ -384,25 +420,27 @@ export async function endListing(
 }
 
 /**
- * Pushes a new price and/or title to the item's live eBay listing, before Sale Away saves it.
- * Throws (nothing saved) if eBay won't take it, unless she chose to save in Sale Away only.
+ * Pushes her edits (price, title, condition, package size, photos) to the item's live eBay listing, before
+ * Sale Away saves them. Throws (nothing saved) if eBay won't take it, unless she chose to save in Sale Away only.
+ * Condition/package/title values are the NEW ones (not saved yet); photos are read from Sale Away as they are now.
  */
 export async function reviseListing(
   supabase: SupabaseClient,
   itemId: string,
-  changes: { price?: number; title?: string },
+  changes: ListingChanges,
   env: EbayEnv,
   canWrite: boolean,
   actor: string | null,
   ws: string,
   opts: { force?: boolean } = {}
 ): Promise<string | null> {
-  if (changes.price === undefined && !changes.title) return null;
+  if (!hasChanges(changes)) return null;
   const ref = await ebayRefFor(supabase, itemId, env);
   if (!ref || env === "mock") return null;
-  const what = [changes.price !== undefined && `price ($${changes.price.toFixed(2)})`, changes.title && "title"].filter(Boolean).join(" and ");
+  const what = describeChanges(changes);
+  const logged = { ...changes, photos: changes.photos ? true : undefined };
   if (opts.force) {
-    await log(ws, actor, "ebay.revise_skipped", { environment: env, itemId, listingId: ref.listingId, ...changes });
+    await log(ws, actor, "ebay.revise_skipped", { environment: env, itemId, listingId: ref.listingId, ...logged });
     return `Saved in Sale Away only. Change the ${what} on eBay too.`;
   }
   if (!canWrite) {
@@ -413,16 +451,44 @@ export async function reviseListing(
   }
   const client = getEbayClient(env, ws);
   try {
+    const { data: item } = await supabase
+      .from("items")
+      .select("condition, condition_grade, condition_text, condition_notes, ebay_category_id")
+      .eq("id", itemId)
+      .single();
+    const cond = changes.condition ? { ...item, ...changes.condition } : null;
+    // The eBay condition her category accepts ("New with box" for shoes, "New with tags" for clothes, ...)
+    const conditionId = async (categoryId: string | null | undefined) =>
+      conditionIdFor(cond!, categoryId ? await client.getConditionIds(categoryId).catch(() => []) : []);
+    const condDescription = cond ? (cond.condition === "new" ? null : cond.condition_text ?? cond.condition_notes ?? null) : undefined;
+    const pkg = changes.package ? { weightOz: changes.package.weight_oz ? Number(changes.package.weight_oz) : null, dims: packageDims(changes.package) } : undefined;
+    const photos = changes.photos ? await ebayPhotoUrls(supabase, client, itemId) : undefined;
+    if (photos && !photos.length) throw new FormError("eBay listings need at least one photo, so the photos weren't changed on eBay.");
+
     if (ref.kind === "legacy") {
-      await client.reviseLegacyListing(ref.listingId, changes);
+      const live = cond || photos ? await client.getLegacyListing(ref.listingId) : null;
+      const revision: LegacyRevision = {
+        price: changes.price,
+        title: changes.title,
+        package: pkg,
+        conditionDescription: condDescription,
+      };
+      if (cond) revision.conditionId = await conditionId(item?.ebay_category_id ?? live?.categoryId);
+      if (photos) revision.pictureUrls = mergeLegacyPictures(live?.pictureUrls ?? [], photos, changes.photos?.removed);
+      await client.reviseLegacyListing(ref.listingId, revision);
     } else {
       if (changes.price !== undefined) await client.updateOfferPrice(ref.offerId, ref.sku, changes.price);
-      if (changes.title) await client.updateInventoryTitle(ref.sku, changes.title);
+      const patch: InventoryPatch = { title: changes.title, imageUrls: photos, package: pkg };
+      if (cond) {
+        patch.condition = CONDITION_ENUM[await conditionId(item?.ebay_category_id)] ?? "USED_EXCELLENT";
+        patch.conditionDescription = condDescription;
+      }
+      if (patch.title || patch.imageUrls || patch.package !== undefined || patch.condition) await client.updateInventoryItem(ref.sku, patch);
     }
   } catch (e) {
     await log(ws, actor, "ebay.revise_failed", { environment: env, itemId, listingId: ref.listingId, error: e instanceof Error ? e.message : String(e) });
-    throw ebayProblem(e, `change the ${what}`, { canForce: true });
+    throw e instanceof FormError ? e : ebayProblem(e, `change the ${what}`, { canForce: true });
   }
-  await log(ws, actor, "ebay.listing_revised", { environment: env, itemId, listingId: ref.listingId, ...changes });
+  await log(ws, actor, "ebay.listing_revised", { environment: env, itemId, listingId: ref.listingId, ...logged });
   return null;
 }

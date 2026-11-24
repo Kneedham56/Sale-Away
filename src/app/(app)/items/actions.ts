@@ -12,6 +12,7 @@ import type { ItemStatus } from "@/lib/format";
 import { endListing, reviseListing } from "@/lib/ebay/publish";
 import { ebayModeFor } from "@/lib/ebay/mode";
 import { cleanMeasurements } from "@/lib/measurements";
+import { diffForEbay, hasChanges, type ListingChanges } from "@/lib/ebay/revise";
 
 export type NewPhoto = { storage_path: string; jpeg_path: string | null; thumb_path: string | null };
 type Db = Awaited<ReturnType<typeof createClient>>;
@@ -115,20 +116,24 @@ export async function updateItem(_prev: unknown, fd: FormData): Promise<ActionRe
     const id = requiredText(fd, "id", "Item id");
     const fields = itemFields(fd);
     const source_id = await resolveSource(supabase, fd);
-    const before = must(await supabase.from("items").select("list_price, title, status").eq("id", id).single());
+    const before = must(
+      await supabase
+        .from("items")
+        .select("list_price, title, status, ebay_ended_at, condition, condition_grade, condition_notes, weight_oz, length_in, width_in, height_in")
+        .eq("id", id)
+        .single()
+    );
     const oldPrice = before.list_price === null ? null : Number(before.list_price);
+    const pkg = {
+      weight_oz: number(fd, "weight_oz", "Weight"),
+      length_in: number(fd, "length_in", "Length"),
+      width_in: number(fd, "width_in", "Width"),
+      height_in: number(fd, "height_in", "Height"),
+    };
     // eBay first: if the live listing can't take the change, nothing is saved (unless she says save anyway)
     const note =
-      before.status === "listed"
-        ? await syncToEbay(
-            supabase,
-            id,
-            {
-              price: fields.list_price !== null && fields.list_price !== oldPrice ? fields.list_price : undefined,
-              title: fields.title !== before.title ? fields.title : undefined,
-            },
-            bool(fd, "ebay_skip")
-          )
+      before.status === "listed" && !before.ebay_ended_at
+        ? await syncToEbay(supabase, id, diffForEbay(before, { ...fields, ...pkg }), bool(fd, "ebay_skip"))
         : null;
     must(
       await supabase
@@ -138,10 +143,7 @@ export async function updateItem(_prev: unknown, fd: FormData): Promise<ActionRe
           source_id,
           date_sourced: isoDate(fd, "date_sourced"),
           date_listed: isoDate(fd, "date_listed"),
-          weight_oz: number(fd, "weight_oz", "Weight"),
-          length_in: number(fd, "length_in", "Length"),
-          width_in: number(fd, "width_in", "Width"),
-          height_in: number(fd, "height_in", "Height"),
+          ...pkg,
           sku: text(fd, "sku"),
           ebay_item_id: text(fd, "ebay_item_id"),
           ...(fd.has("measurements") ? { measurements: measurementsFrom(fd) } : {}),
@@ -177,9 +179,9 @@ async function takeOffEbay(supabase: Db, itemId: string, force = false): Promise
   return r.note;
 }
 
-/** Price / title change on a listed item: send it to the live eBay listing first (throws if eBay says no). */
-async function syncToEbay(supabase: Db, itemId: string, changes: { price?: number; title?: string }, force = false): Promise<string | null> {
-  if (changes.price === undefined && !changes.title) return null;
+/** An edit on a listed item (price, title, condition, package, photos): send it to the live eBay listing first (throws if eBay says no). */
+async function syncToEbay(supabase: Db, itemId: string, changes: ListingChanges, force = false): Promise<string | null> {
+  if (!hasChanges(changes)) return null;
   const me = await requireMember();
   const mode = await ebayModeFor(me.workspace.id);
   return reviseListing(supabase, itemId, changes, mode.env, mode.canPublish, me.userId, me.workspace.id, { force });
@@ -280,7 +282,48 @@ export async function logItemEvent(_prev: unknown, fd: FormData): Promise<Action
   });
 }
 
-export async function addPhotos(itemId: string, photos: NewPhoto[]): Promise<ActionResult> {
+/**
+ * After a photo change on a listed item, send her photos to the eBay listing. The photos are already saved in
+ * Sale Away (they have to be, to be sent), so if eBay says no she gets a note and the Update eBay button to retry.
+ */
+async function photosToEbay(supabase: Db, itemId: string, removed: string[] = []): Promise<string | null> {
+  const { data: it } = await supabase.from("items").select("status, ebay_ended_at").eq("id", itemId).single();
+  if (it?.status !== "listed" || it.ebay_ended_at) return null;
+  try {
+    return await syncToEbay(supabase, itemId, { photos: { removed } });
+  } catch (e) {
+    return `Saved in Sale Away, but eBay didn't take the photo change: ${e instanceof Error ? e.message : String(e)} Tap “Update eBay listing” to try again.`;
+  }
+}
+
+/** Sends everything eBay shows from Sale Away (price, title, condition, package size, photos) to the live listing. */
+export async function updateEbayListing(_prev: unknown, fd: FormData): Promise<ActionResult<string | null>> {
+  return attempt(async () => {
+    const supabase = await db();
+    const id = requiredText(fd, "id", "Item id");
+    const it = must(
+      await supabase
+        .from("items")
+        .select("status, ebay_ended_at, list_price, title, condition, condition_grade, condition_notes, weight_oz, length_in, width_in, height_in")
+        .eq("id", id)
+        .single()
+    );
+    if (it.status !== "listed" || it.ebay_ended_at) throw new FormError("This item isn't live on eBay.");
+    const n = (v: unknown) => (v === null ? null : Number(v));
+    const note = await syncToEbay(supabase, id, {
+      price: it.list_price === null ? undefined : Number(it.list_price),
+      title: it.title,
+      condition: it.condition ? { condition: it.condition, condition_grade: it.condition_grade, condition_notes: it.condition_notes } : undefined,
+      package: { weight_oz: n(it.weight_oz), length_in: n(it.length_in), width_in: n(it.width_in), height_in: n(it.height_in) },
+      photos: {},
+    });
+    await supabase.from("item_events").insert({ item_id: id, action: "Revised Listing", note: "Sent to eBay" });
+    refresh();
+    return note;
+  });
+}
+
+export async function addPhotos(itemId: string, photos: NewPhoto[]): Promise<ActionResult<string | null>> {
   return attempt(async () => {
     const supabase = await db();
     const { data: last } = await supabase
@@ -294,23 +337,27 @@ export async function addPhotos(itemId: string, photos: NewPhoto[]): Promise<Act
       await supabase.from("item_photos").insert(photos.map((p, i) => ({ item_id: itemId, ...p, sort_order: start + i })))
     );
     await supabase.from("item_events").insert({ item_id: itemId, action: "Changed Photos", note: `Added ${photos.length}` });
+    const note = await photosToEbay(supabase, itemId);
     refresh();
+    return note;
   });
 }
 
-export async function deletePhoto(photoId: string): Promise<ActionResult> {
+export async function deletePhoto(photoId: string): Promise<ActionResult<string | null>> {
   return attempt(async () => {
     const supabase = await db();
     const photo = must(await supabase.from("item_photos").select("*").eq("id", photoId).single());
     must(await supabase.from("item_photos").delete().eq("id", photoId));
     const paths = [photo.storage_path, photo.jpeg_path, photo.thumb_path].filter(Boolean) as string[];
     await supabase.storage.from(PHOTO_BUCKET).remove([...new Set(paths)]);
+    const note = await photosToEbay(supabase, photo.item_id, photo.ebay_picture_url ? [photo.ebay_picture_url] : []);
     refresh();
+    return note;
   });
 }
 
 /** Moves a photo to the front (cover) or one step left/right. */
-export async function movePhoto(photoId: string, to: "first" | "left" | "right"): Promise<ActionResult> {
+export async function movePhoto(photoId: string, to: "first" | "left" | "right"): Promise<ActionResult<string | null>> {
   return attempt(async () => {
     const supabase = await db();
     const photo = must(await supabase.from("item_photos").select("item_id").eq("id", photoId).single());
@@ -322,7 +369,9 @@ export async function movePhoto(photoId: string, to: "first" | "left" | "right")
     ids.splice(i, 1);
     ids.splice(j, 0, photoId);
     await Promise.all(ids.map((id, n) => supabase.from("item_photos").update({ sort_order: n }).eq("id", id)));
+    const note = i === j ? null : await photosToEbay(supabase, photo.item_id);
     refresh();
+    return note;
   });
 }
 

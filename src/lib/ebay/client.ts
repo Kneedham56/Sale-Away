@@ -14,6 +14,7 @@ import type {
   Policies,
 } from "./types";
 import { MockEbayClient } from "./mock";
+import { legacyReviseXml, type LegacyRevision } from "./revise";
 
 /** Every eBay call in the app goes through this interface. Pick the implementation with EBAY_ENV. */
 export interface EbayClient {
@@ -42,13 +43,23 @@ export interface EbayClient {
   withdrawOffer(offerId: string): Promise<void>;
   /** Change price on a listing the app published (Inventory API offer) */
   updateOfferPrice(offerId: string, sku: string, price: number): Promise<void>;
-  /** Change the title of a listing the app published (rewrites its inventory item) */
-  updateInventoryTitle(sku: string, title: string): Promise<void>;
+  /** Change title, condition, package or photos of a listing the app published (eBay revises the live listing) */
+  updateInventoryItem(sku: string, patch: InventoryPatch): Promise<void>;
   /** Offers eBay already has for this SKU (any listing, including ones made in Seller Hub) */
   findOffers(sku: string): Promise<{ offerId: string; status: string; listingId: string | null }[]>;
-  /** Listings made in Seller Hub / the eBay app (Trading API): change price or title, or end it */
-  reviseLegacyListing(listingId: string, changes: { price?: number; title?: string }): Promise<void>;
+  /** Listings made in Seller Hub / the eBay app (Trading API): read, change, or end it */
+  getLegacyListing(listingId: string): Promise<{ categoryId: string | null; pictureUrls: string[] }>;
+  reviseLegacyListing(listingId: string, changes: LegacyRevision): Promise<void>;
   endLegacyListing(listingId: string): Promise<void>;
+}
+
+/** Only the fields given are changed; `conditionDescription: null` / `package: null` remove them. */
+export type InventoryPatch = {
+  title?: string;
+  condition?: string;
+  conditionDescription?: string | null;
+  package?: { weightOz: number | null; dims: { length: number; width: number; height: number } | null } | null;
+  imageUrls?: string[];
 }
 
 export class EbayError extends Error {
@@ -391,13 +402,30 @@ class RestEbayClient implements EbayClient {
     if (bad) throw new EbayError(`eBay: ${bad.errors?.[0]?.message ?? "price update failed"}`, bad.statusCode, data);
   }
 
-  async updateInventoryTitle(sku: string, title: string): Promise<void> {
+  async updateInventoryItem(sku: string, patch: InventoryPatch): Promise<void> {
+    // eBay replaces the whole inventory item on PUT, so start from what it has and change only these fields
     const path = `/sell/inventory/v1/inventory_item/${encodeURIComponent(sku)}`;
     const { data } = await this.call<Record<string, unknown> & { product?: Record<string, unknown> }>(path, { user: true });
-    const { sku: _sku, locale: _locale, ...rest } = data;
-    void _sku;
-    void _locale;
-    await this.call(path, { user: true, method: "PUT", body: { ...rest, product: { ...data.product, title } } });
+    const { sku: _sku, locale: _locale, groupIds: _g, inventoryItemGroupKeys: _k, ...body } = data;
+    void [_sku, _locale, _g, _k];
+    const product = { ...data.product };
+    if (patch.title) product.title = patch.title;
+    if (patch.imageUrls?.length) product.imageUrls = patch.imageUrls;
+    body.product = product;
+    if (patch.condition) body.condition = patch.condition;
+    if (patch.conditionDescription === null) delete body.conditionDescription;
+    else if (patch.conditionDescription) body.conditionDescription = patch.conditionDescription.slice(0, 1000);
+    if (patch.package === null) delete body.packageWeightAndSize;
+    else if (patch.package) {
+      const { weightOz, dims } = patch.package;
+      if (!weightOz && !dims) delete body.packageWeightAndSize;
+      else
+        body.packageWeightAndSize = {
+          ...(weightOz ? { weight: { value: weightOz, unit: "OUNCE" } } : {}),
+          ...(dims ? { dimensions: { ...dims, unit: "INCH" } } : {}),
+        };
+    }
+    await this.call(path, { user: true, method: "PUT", body });
   }
 
   async findOffers(sku: string) {
@@ -461,14 +489,20 @@ class RestEbayClient implements EbayClient {
     return xml;
   }
 
-  async reviseLegacyListing(listingId: string, changes: { price?: number; title?: string }): Promise<void> {
-    const esc = (s: string) => s.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-    const parts = [
-      `<ItemID>${esc(listingId)}</ItemID>`,
-      changes.price !== undefined ? `<StartPrice>${changes.price.toFixed(2)}</StartPrice>` : "",
-      changes.title ? `<Title>${esc(changes.title.slice(0, 80))}</Title>` : "",
-    ];
-    await this.trading("ReviseFixedPriceItem", `<Item>${parts.join("")}</Item>`);
+  async getLegacyListing(listingId: string) {
+    const xml = await this.trading(
+      "GetItem",
+      `<ItemID>${listingId.replace(/\D/g, "")}</ItemID><OutputSelector>PrimaryCategory</OutputSelector><OutputSelector>PictureDetails</OutputSelector>`
+    );
+    const unescape = (s: string) => s.replace(/&amp;/g, "&").replace(/&lt;/g, "<").replace(/&gt;/g, ">").replace(/&quot;/g, '"').replace(/&apos;/g, "'");
+    const category = xml.match(/<PrimaryCategory>[\s\S]*?<CategoryID>(\d+)<\/CategoryID>/)?.[1] ?? null;
+    const pictures = xml.match(/<PictureDetails>([\s\S]*?)<\/PictureDetails>/)?.[1] ?? "";
+    return { categoryId: category, pictureUrls: [...pictures.matchAll(/<PictureURL>([^<]+)<\/PictureURL>/g)].map((m) => unescape(m[1])) };
+  }
+
+  async reviseLegacyListing(listingId: string, changes: LegacyRevision): Promise<void> {
+    const { item, deleted } = legacyReviseXml(listingId, changes);
+    await this.trading("ReviseFixedPriceItem", `${item}${deleted.map((f) => `<DeletedField>${f}</DeletedField>`).join("")}`);
   }
 
   async endLegacyListing(listingId: string): Promise<void> {

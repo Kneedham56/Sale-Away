@@ -11,6 +11,8 @@ export function ItemPhotos({ itemId, workspaceId, photos }: { itemId: string; wo
   const [selected, setSelected] = useState(0);
   const [uploading, setUploading] = useState(0);
   const [error, setError] = useState<string | null>(null);
+  // eBay didn't take a photo change on a listed item (the photos are saved in Sale Away)
+  const [note, setNote] = useState<string | null>(null);
   const [pending, startTransition] = useTransition();
   const [camera, setCamera] = useState(false);
   // Shots from the square camera, saved together when she taps Done
@@ -20,21 +22,26 @@ export function ItemPhotos({ itemId, workspaceId, photos }: { itemId: string; wo
   async function onFiles(files: FileList | File[] | null) {
     if (!files?.length) return;
     setError(null);
+    setNote(null);
     setUploading(files.length);
     const results = await Promise.allSettled(Array.from(files).map((f) => uploadPhoto(workspaceId, itemId, f)));
     const ok = results.flatMap((r) => (r.status === "fulfilled" ? [r.value] : []));
     if (ok.length) {
       const res = await addPhotos(itemId, ok);
       if (!res.ok) setError(res.error);
+      else setNote(res.data ?? null);
     }
     if (ok.length < results.length) setError(`${results.length - ok.length} photo(s) failed to upload.`);
     setUploading(0);
   }
 
-  function run(fn: () => Promise<{ ok: boolean; error?: string }>) {
+  function run(fn: () => Promise<{ ok: boolean; error?: string; data?: string | null }>) {
+    setError(null);
+    setNote(null);
     startTransition(async () => {
       const res = await fn();
       if (!res.ok) setError(res.error ?? "Something went wrong.");
+      else setNote(res.data ?? null);
     });
   }
 
@@ -106,6 +113,7 @@ export function ItemPhotos({ itemId, workspaceId, photos }: { itemId: string; wo
         )}
       </div>
       {error && <p className="text-sm text-danger">{error}</p>}
+      {note && <p className="rounded-xl bg-coral/10 px-3 py-2 text-sm text-coral">{note}</p>}
       {camera && (
         <SquareCamera
           onCapture={(file) => shotsRef.current.push(file)}

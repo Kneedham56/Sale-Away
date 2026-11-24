@@ -20,6 +20,7 @@ import { ListingCopy } from "@/components/listing-copy";
 import { ListingAssistant } from "./listing-assistant";
 import type { ListingSuggestion } from "@/lib/ai/types";
 import { ListOnEbay } from "./list-on-ebay";
+import { UpdateEbayButton } from "./update-ebay-button";
 import { ebayModeFor } from "@/lib/ebay/mode";
 import { checkReady, type PolicyDefaults } from "@/lib/ebay/publish";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -253,6 +254,10 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/ite
                 heightIn: item.height_in === null ? null : Number(item.height_in),
               }}
             />
+          )}
+
+          {status === "listed" && !item.ebay_ended_at && mode.canPublish && mode.env !== "mock" && (item.ebay_item_id || item.ebay_offer_id) && (
+            <UpdateEbayButton itemId={item.id} context={`Item #${item.item_number}: ${item.title}`} />
           )}
 
           <StatusActions

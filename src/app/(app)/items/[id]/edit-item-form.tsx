@@ -97,7 +97,7 @@ export function EditItemForm({ item, lookups, today }: { item: EditableItem; loo
       </Field>
 
       <div className="grid grid-cols-2 gap-3">
-        <Field label="Condition">
+        <Field label="Condition" hint="New posts as eBay's “New with box” (shoes) or “New with tags” (clothes).">
           <select name="condition" className="input" defaultValue={item.condition ?? ""}>
             <option value="">–</option>
             <option value="new">New</option>
