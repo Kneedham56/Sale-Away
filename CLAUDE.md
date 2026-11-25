@@ -77,6 +77,14 @@ Insights = sales by month, trips, reports, expenses, taxes. `STAGE_STATUSES` in 
   (Inventory API) and her Seller Hub listings (Trading API: ReviseFixedPriceItem / EndFixedPriceItem) via `items.ebay_item_id`.
   Photo add/delete/reorder saves first, then pushes (warns on failure); the item page's "Update eBay listing" re-sends all.
   eBay photo links are cached on `item_photos.ebay_picture_url`. Seller Hub listings keep photos she added on eBay itself.
+- **Relist** (`relistItem()`, item page box; Listed > "Relist due", settings `relist_days`, default 180): always ends the
+  old listing first, then reposts (app listings: `publishItem` on the same offer = new item number; Seller Hub:
+  RelistFixedPriceItem). `syncListings()` follows a listing she relisted by hand in eBay (same unique SKU, new item
+  number) and copies eBay's price into Sale Away (blank prices filled quietly; real changes logged as "Changed on eBay").
+- **Listing queue** (`/queue`, `src/lib/queue.ts`): a photo batch -> AI sorts photos into items (`groupPhotoBatch`,
+  `src/lib/ai/group.ts`) or every N photos -> one item each (title `BATCH_TITLE` until accepted) -> `suggestListing`.
+  Items at or under settings `queue_quick_max` (default $20), KEEP and unflagged go to Quick send (accept + post in one
+  tap); the rest to Review (item page). FLYP has no API: it imports her new eBay listings itself (Auto-Sync).
   Manual "Mark listed" never posts; List on eBay does. Conditions come from the
   category's allowed list (Metadata API) via `conditionFor()`. `npm run ebay:sandbox-setup` prepares a fresh test seller.
 - FLYP bridge: FLYP (her cross-lister) ends the eBay listing when an item sells on another site. `syncListings()` reads

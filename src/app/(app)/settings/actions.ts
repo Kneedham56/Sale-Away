@@ -22,9 +22,13 @@ export async function saveRates(_prev: unknown, fd: FormData): Promise<ActionRes
     }
     const mileage = number(fd, "mileage_rate", "Mileage rate");
     const stale = number(fd, "stale_listing_days", "Stale days");
+    const relist = number(fd, "relist_days", "Relist days");
+    const quickMax = number(fd, "queue_quick_max", "Quick send price");
     const rows = [
       ...(mileage !== null ? [{ key: "mileage_rate", value: mileage }] : []),
       ...(stale !== null ? [{ key: "stale_listing_days", value: Math.round(stale) }] : []),
+      ...(relist !== null ? [{ key: "relist_days", value: Math.round(relist) }] : []),
+      ...(quickMax !== null ? [{ key: "queue_quick_max", value: quickMax }] : []),
     ];
     if (rows.length) await supabase.from("settings").upsert(rows, { onConflict: "workspace_id,key" });
     refresh();

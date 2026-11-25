@@ -1,6 +1,7 @@
 "use server";
 
 import { refresh } from "next/cache";
+import { isBatchTitle } from "@/lib/queue";
 import { createClient } from "@/lib/supabase/server";
 import { requireMember } from "@/lib/auth";
 import { attempt, FormError, type ActionResult } from "@/lib/form";
@@ -75,7 +76,8 @@ export async function acceptListing(itemId: string, runId: string | null, l: Acc
 
     const patch: Record<string, unknown> = {
       title,
-      intake_title: item.intake_title ?? (item.title !== title ? item.title : null),
+      // A photo-batch item's placeholder name isn't worth keeping as what she called it
+      intake_title: item.intake_title ?? (item.title !== title && !isBatchTitle(item.title) ? item.title : null),
       ebay_category_name: l.category || null,
       ebay_category_id: l.ebay_category_id ?? null,
       item_specifics: l.item_specifics.filter((s) => s.name.trim() && s.value.trim()),

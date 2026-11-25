@@ -492,3 +492,124 @@ export async function reviseListing(
   await log(ws, actor, "ebay.listing_revised", { environment: env, itemId, listingId: ref.listingId, ...logged });
   return null;
 }
+
+export type RelistResult = { listingId: string; url: string | null; note: string | null };
+
+/**
+ * Her 6-month routine in one tap: end the eBay listing and post it again as a new listing with the same photos,
+ * title, description and SKU (optionally a new price and package size). Sale Away links to the new listing, so
+ * nothing gets flagged as "sold somewhere else". Listings the app posted are posted again from Sale Away's data;
+ * Seller Hub listings go back up with eBay's own Relist (everything she set on eBay stays).
+ * Also works when the listing already ended (e.g. a relist that failed halfway): it just posts again.
+ */
+export async function relistItem(
+  supabase: SupabaseClient,
+  itemId: string,
+  changes: { price?: number; package?: { weight_oz: number | null; length_in: number | null; width_in: number | null; height_in: number | null } },
+  env: EbayEnv,
+  canWrite: boolean,
+  actor: string | null,
+  ws: string
+): Promise<RelistResult> {
+  if (env === "mock") throw new FormError("Sample data: there's no eBay listing to relist.");
+  if (!canWrite) throw new FormError("Sale Away isn't allowed to change your eBay listings right now.", { fix: "doc", detail: "publishing is off for this business" });
+  const [{ data: item }, { data: appRow }] = await Promise.all([
+    supabase.from("items").select("status, ebay_item_id, ebay_ended_at, list_price, item_number").eq("id", itemId).single(),
+    supabase
+      .from("ebay_listings")
+      .select("id, offer_id, sku")
+      .eq("item_id", itemId)
+      .eq("environment", env)
+      .not("offer_id", "is", null)
+      .order("updated_at", { ascending: false })
+      .limit(1)
+      .maybeSingle(),
+  ]);
+  if (!item || item.status !== "listed") throw new FormError("Only listed items can be relisted.");
+  const kind = appRow?.offer_id ? "app" : item.ebay_item_id ? "legacy" : null;
+  if (!kind) throw new FormError("Sale Away doesn't know this item's eBay listing. Use List on eBay instead.");
+  if (changes.price !== undefined && !(changes.price > 0)) throw new FormError("Enter a price above $0.");
+  const pkgPatch = changes.package ?? {};
+
+  if (kind === "app") {
+    // Check it can go back up BEFORE taking it down
+    const { data: full } = await supabase.from("items_view").select("*").eq("id", itemId).single();
+    const { data: pol } = await supabase.from("settings").select("value").eq("workspace_id", ws).eq("key", "ebay_policies").maybeSingle();
+    const { count } = await supabase.from("item_photos").select("id", { count: "exact", head: true }).eq("item_id", itemId);
+    const check = checkReady({ ...full, ...pkgPatch, list_price: changes.price ?? full?.list_price }, count ?? 0, (pol?.value ?? {}) as PolicyDefaults);
+    if (!check.ok) throw new FormError(`Can't relist yet: ${check.problems.join(" ")}`, { fix: "edit" });
+  }
+
+  const oldId = item.ebay_item_id;
+  const client = getEbayClient(env, ws);
+  // Always take the old one down first, even if Sale Away thinks it already ended (that flag can be wrong);
+  // eBay saying "already ended" is fine. Posting over a live listing would only revise it, not relist it.
+  try {
+    if (kind === "app") await client.withdrawOffer(appRow!.offer_id);
+    else await client.endLegacyListing(oldId!);
+  } catch (e) {
+    const stillLive =
+      kind === "app"
+        ? await client
+            .findOffers(appRow!.sku)
+            .then((offers) => offers.some((o) => o.offerId === appRow!.offer_id && o.status === "PUBLISHED"))
+            .catch(() => true)
+        : true;
+    if (stillLive) {
+      await log(ws, actor, "ebay.end_failed", { environment: env, itemId, listingId: oldId, error: e instanceof Error ? e.message : String(e) });
+      throw ebayProblem(e, "end the old eBay listing");
+    }
+  }
+  if (kind === "app") await supabase.from("ebay_listings").update({ status: "ended" }).eq("id", appRow!.id);
+  await supabase.from("items").update({ ebay_ended_at: new Date().toISOString() }).eq("id", itemId);
+  await log(ws, actor, "ebay.listing_ended", { environment: env, itemId, listingId: oldId, kind, reason: "relist" });
+  const failedHalfway = (e: unknown) =>
+    new FormError(
+      `The old listing ended, but eBay didn't take the new one: ${e instanceof Error ? e.message : String(e)} Fix that and tap Relist again (nothing else is lost).`,
+      { detail: e instanceof Error ? e.message : String(e) }
+    );
+
+  let listingId: string;
+  let url: string | null;
+  if (kind === "app") {
+    const patch = { ...pkgPatch, ...(changes.price !== undefined ? { list_price: changes.price } : {}) };
+    if (Object.keys(patch).length) await supabase.from("items").update(patch).eq("id", itemId);
+    try {
+      const r = await publishItem(supabase, itemId, env, actor, ws);
+      listingId = r.listingId!;
+      url = r.url;
+    } catch (e) {
+      throw failedHalfway(e);
+    }
+  } else {
+    const pkg = changes.package ? { weightOz: changes.package.weight_oz, dims: packageDims(changes.package) } : undefined;
+    try {
+      listingId = await client.relistLegacyListing(oldId!, { price: changes.price, package: pkg });
+    } catch (e) {
+      await log(ws, actor, "ebay.relist_failed", { environment: env, itemId, listingId: oldId, error: e instanceof Error ? e.message : String(e) });
+      throw failedHalfway(ebayProblem(e, "relist this item"));
+    }
+    const today = new Intl.DateTimeFormat("en-CA", { timeZone: "America/Los_Angeles" }).format(new Date());
+    await supabase
+      .from("items")
+      .update({
+        ...pkgPatch,
+        ...(changes.price !== undefined ? { list_price: changes.price } : {}),
+        ebay_item_id: listingId,
+        ebay_ended_at: null,
+        date_listed: today,
+      })
+      .eq("id", itemId);
+    url = env === "production" ? `https://www.ebay.com/itm/${listingId}` : `https://www.sandbox.ebay.com/itm/${listingId}`;
+  }
+  const oldPrice = item.list_price === null ? null : Number(item.list_price);
+  await supabase.from("item_events").insert({
+    item_id: itemId,
+    action: "Relisted Item",
+    old_value: changes.price !== undefined && oldPrice !== null && oldPrice !== changes.price ? String(oldPrice) : null,
+    new_value: changes.price !== undefined && oldPrice !== changes.price ? String(changes.price) : null,
+    note: `eBay ${oldId ?? "?"} → ${listingId}`,
+  });
+  await log(ws, actor, "ebay.relisted", { environment: env, itemId, kind, oldListingId: oldId, listingId, price: changes.price });
+  return { listingId, url, note: null };
+}

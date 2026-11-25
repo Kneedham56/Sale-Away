@@ -12,6 +12,7 @@ import {
   type ItemNotes,
 } from "./prompts";
 import { LISTING_SCHEMA, QUICK_SCHEMA, type ListingSuggestion, type QuickCheckResult } from "./types";
+import { isBatchTitle } from "@/lib/queue";
 
 export type AiSettings = {
   listingPrompt: string;
@@ -69,7 +70,8 @@ export async function loadItemNotes(supabase: SupabaseClient, itemId: string, ex
     .single();
   if (error || !item) throw new Error("Item not found.");
   return {
-    title: item.intake_title ?? item.title,
+    // A photo-batch item has no name yet: the photos are all there is
+    title: isBatchTitle(item.intake_title ?? item.title) ? "not known yet: identify it from the photos" : item.intake_title ?? item.title,
     kind: item.kind,
     category: item.category,
     format: item.format,
@@ -102,7 +104,8 @@ export async function suggestListing(
   const notes = await loadItemNotes(supabase, itemId, opts.extra);
   const [images, comps] = await Promise.all([
     itemImages(supabase, itemId),
-    opts.comps ? opts.comps(notes.title).catch(() => null) : Promise.resolve(null),
+    // No name yet (photo batch): searching eBay for "not known yet" would only bring back junk comps
+    opts.comps && !notes.title.startsWith("not known yet") ? opts.comps(notes.title).catch(() => null) : Promise.resolve(null),
   ]);
   const prompt = fillListingPrompt(settings.listingPrompt, notes, settings.storeRules, comps?.text);
   const inputs = { notes, model: settings.listingModel, photo_count: images.length, comps: comps?.comps?.length ?? 0 };
@@ -122,6 +125,11 @@ export async function suggestListing(
     if (result.fellBack) suggestion.flags.unshift("The main model was slow or busy, so the faster (less accurate) model answered. Check the price, or tap Try again later.");
     if (!images.length) suggestion.flags.unshift("No photos were sent; this is based on her notes only.");
     if (comps?.comps?.length) suggestion.comps = comps.comps;
+    else if (opts.comps && suggestion.title && notes.title.startsWith("not known yet")) {
+      // Photo batch: now that the AI named it, show her similar eBay listings to check the price against
+      const after = await opts.comps(suggestion.title).catch(() => null);
+      if (after?.comps?.length) suggestion.comps = after.comps;
+    }
     if (opts.validate && suggestion.category) {
       const v = await opts.validate(suggestion.category, suggestion.item_specifics, suggestion.title).catch(() => null);
       if (v) {

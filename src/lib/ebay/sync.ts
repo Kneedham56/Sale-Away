@@ -403,7 +403,17 @@ export async function runEbaySync(env: EbayEnv, ws: string): Promise<SyncResult>
   }
 }
 
-export type ListingWatchResult = { active: number; linked: number; movedToListed: number; ended: number; relisted: number };
+export type ListingWatchResult = {
+  active: number;
+  linked: number;
+  movedToListed: number;
+  ended: number;
+  relisted: number;
+  /** Relisted by hand in eBay (new item number, same SKU): now linked to the new listing */
+  relinked: number;
+  /** Price changed on eBay itself: Sale Away now has eBay's price */
+  pricesUpdated: number;
+};
 
 /**
  * The FLYP bridge. FLYP ends the eBay listing when an item sells on another site, and the app never hears
@@ -413,16 +423,25 @@ export type ListingWatchResult = { active: number; linked: number; movedToListed
 export async function syncListings(env: RealEnv, ws: string): Promise<ListingWatchResult> {
   const db = createAdminClient();
   const listings = await getEbayClient(env, ws).getActiveListings(); // throws on any failure: never flag on a partial read
-  const result: ListingWatchResult = { active: listings.length, linked: 0, movedToListed: 0, ended: 0, relisted: 0 };
+  const result: ListingWatchResult = { active: listings.length, linked: 0, movedToListed: 0, ended: 0, relisted: 0, relinked: 0, pricesUpdated: 0 };
   const now = new Date().toISOString();
 
   // All her items once (5k rows is nothing), matched in memory
-  type Row = { id: string; title: string; sku: string | null; status: string; ebay_item_id: string | null; ebay_ended_at: string | null; date_listed: string | null };
+  type Row = {
+    id: string;
+    title: string;
+    sku: string | null;
+    status: string;
+    ebay_item_id: string | null;
+    ebay_ended_at: string | null;
+    date_listed: string | null;
+    list_price: string | number | null;
+  };
   const items: Row[] = [];
   for (let from = 0; ; from += 1000) {
     const { data, error } = await db
       .from("items")
-      .select("id, title, sku, status, ebay_item_id, ebay_ended_at, date_listed")
+      .select("id, title, sku, status, ebay_item_id, ebay_ended_at, date_listed, list_price")
       .eq("workspace_id", ws)
       .range(from, from + 999);
     if (error) throw new Error(error.message);
@@ -432,6 +451,12 @@ export async function syncListings(env: RealEnv, ws: string): Promise<ListingWat
   const linkedBefore = items.filter((i) => i.ebay_item_id); // only these can be flagged as ended
   const byListing = new Map(linkedBefore.map((i) => [i.ebay_item_id!, i]));
   const bySku = new Map(items.filter((i) => i.sku).map((i) => [i.sku!, i]));
+  // Her custom labels repeat; only a SKU that belongs to exactly one item can move a link to a new listing
+  const skuCount = new Map<string, number>();
+  for (const i of items) if (i.sku) skuCount.set(i.sku, (skuCount.get(i.sku) ?? 0) + 1);
+  const activeIds = new Set(listings.map((l) => l.listingId));
+  const relinked = new Set<string>();
+  const events: Record<string, unknown>[] = [];
   const rank = ["listed", "ready_to_list", "unlisted", "intake"];
   const byTitle = new Map<string, Row[]>();
   for (const i of items) {
@@ -446,7 +471,8 @@ export async function syncListings(env: RealEnv, ws: string): Promise<ListingWat
   const snapshot: Record<string, unknown>[] = [];
   const claimed = new Set<string>();
   for (const l of listings) {
-    let item = byListing.get(l.listingId) ?? (l.sku ? bySku.get(l.sku) : undefined);
+    const exact = byListing.get(l.listingId);
+    let item = exact ?? (l.sku ? bySku.get(l.sku) : undefined);
     if (!item) {
       // Her VLOOKUP rule: exact title; each item can match only one listing
       item = (byTitle.get(l.title.trim()) ?? []).find((i) => !claimed.has(i.id));
@@ -457,8 +483,40 @@ export async function syncListings(env: RealEnv, ws: string): Promise<ListingWat
       if (!item.ebay_item_id) {
         patch.ebay_item_id = l.listingId;
         result.linked++;
+      } else if (
+        !exact &&
+        item.ebay_item_id !== l.listingId &&
+        !activeIds.has(item.ebay_item_id) &&
+        l.sku &&
+        skuCount.get(l.sku) === 1 &&
+        !relinked.has(item.id)
+      ) {
+        // She ended it and relisted it in eBay (Sell similar / Relist): follow it to the new item number
+        patch.ebay_item_id = l.listingId;
+        patch.ebay_ended_at = null;
+        if (l.startTime) patch.date_listed = localDate(l.startTime);
+        relinked.add(item.id);
+        result.relinked++;
+        events.push({ workspace_id: ws, item_id: item.id, action: "Relisted Item", note: `On eBay: ${item.ebay_item_id} → ${l.listingId}` });
+        // A listing the app posted is no longer the live one; changes now go to the new (Seller Hub) listing
+        await db.from("ebay_listings").update({ status: "ended" }).eq("item_id", item.id).eq("environment", env).eq("status", "published");
       }
-      if (item.ebay_ended_at) {
+      // Price she changed on eBay itself (only for a listing we know is this item's)
+      const oldPrice = item.list_price === null ? null : Number(item.list_price);
+      if ((exact || relinked.has(item.id)) && l.price !== null && item.status === "listed" && oldPrice !== l.price) {
+        patch.list_price = l.price;
+        result.pricesUpdated++;
+        // A blank price (most spreadsheet imports) is just filled in; a real change goes in her history
+        if (oldPrice !== null) events.push({
+          workspace_id: ws,
+          item_id: item.id,
+          action: oldPrice !== null && l.price < oldPrice ? "Reduced Price" : "Revised Listing",
+          old_value: oldPrice === null ? null : String(oldPrice),
+          new_value: String(l.price),
+          note: "Changed on eBay",
+        });
+      }
+      if (item.ebay_ended_at && !relinked.has(item.id)) {
         patch.ebay_ended_at = null; // live again (relisted)
         result.relisted++;
       }
@@ -485,9 +543,8 @@ export async function syncListings(env: RealEnv, ws: string): Promise<ListingWat
   }
 
   // Listed items whose eBay listing is gone and that didn't sell on eBay (an eBay sale would have made them "sold")
-  const activeIds = new Set(listings.map((l) => l.listingId));
   for (const i of linkedBefore) {
-    if (i.status !== "listed" || i.ebay_ended_at || activeIds.has(i.ebay_item_id!)) continue;
+    if (i.status !== "listed" || i.ebay_ended_at || relinked.has(i.id) || activeIds.has(i.ebay_item_id!)) continue;
     updates.push({ id: i.id, patch: { ebay_ended_at: now } });
     result.ended++;
   }
@@ -496,6 +553,7 @@ export async function syncListings(env: RealEnv, ws: string): Promise<ListingWat
   for (let k = 0; k < updates.length; k += 10) {
     await Promise.all(updates.slice(k, k + 10).map((u) => db.from("items").update(u.patch).eq("id", u.id)));
   }
+  if (events.length) await db.from("item_events").insert(events);
   for (let k = 0; k < snapshot.length; k += 500) {
     const { error } = await db.from("ebay_active_listings").upsert(snapshot.slice(k, k + 500), { onConflict: "workspace_id,environment,listing_id" });
     if (error) throw new Error(error.message);

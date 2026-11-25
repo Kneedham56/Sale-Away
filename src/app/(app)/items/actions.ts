@@ -9,7 +9,7 @@ import { todayIso } from "@/lib/dates";
 import { PHOTO_BUCKET } from "@/lib/photos";
 import { attempt, bool, FormError, isoDate, number, requiredText, text, type ActionResult } from "@/lib/form";
 import type { ItemStatus } from "@/lib/format";
-import { endListing, reviseListing } from "@/lib/ebay/publish";
+import { endListing, relistItem, reviseListing } from "@/lib/ebay/publish";
 import { ebayModeFor } from "@/lib/ebay/mode";
 import { cleanMeasurements } from "@/lib/measurements";
 import { diffForEbay, hasChanges, type ListingChanges } from "@/lib/ebay/revise";
@@ -439,4 +439,32 @@ export async function markSold(_prev: unknown, fd: FormData): Promise<ActionResu
 /** One tap on an "ended on eBay" item: back to inventory, or gave up. (Sold elsewhere goes through Mark sold.) */
 export async function resolveEndedListing(fd: FormData): Promise<void> {
   await changeStatus(null, fd);
+}
+
+/** End the eBay listing and post it again (new listing, same details), optionally at a new price / package size. */
+export async function relistOnEbay(_prev: unknown, fd: FormData): Promise<ActionResult<{ url: string | null; listingId: string }>> {
+  return attempt(async () => {
+    const supabase = await db();
+    const me = await requireMember();
+    const id = requiredText(fd, "id", "Item id");
+    const price = number(fd, "list_price", "Price");
+    const pkg = {
+      weight_oz: number(fd, "weight_oz", "Weight"),
+      length_in: number(fd, "length_in", "Length"),
+      width_in: number(fd, "width_in", "Width"),
+      height_in: number(fd, "height_in", "Height"),
+    };
+    const mode = await ebayModeFor(me.workspace.id);
+    const r = await relistItem(
+      supabase,
+      id,
+      { price: price ?? undefined, package: fd.has("weight_oz") ? pkg : undefined },
+      mode.env,
+      mode.canPublish,
+      me.userId,
+      me.workspace.id
+    );
+    refresh();
+    return { url: r.url, listingId: r.listingId };
+  });
 }

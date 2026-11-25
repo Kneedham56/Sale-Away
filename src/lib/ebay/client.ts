@@ -51,6 +51,8 @@ export interface EbayClient {
   getLegacyListing(listingId: string): Promise<{ categoryId: string | null; pictureUrls: string[] }>;
   reviseLegacyListing(listingId: string, changes: LegacyRevision): Promise<void>;
   endLegacyListing(listingId: string): Promise<void>;
+  /** Puts an ended Seller Hub listing back up as a new listing (same everything, optional new price/package). Returns the new item number. */
+  relistLegacyListing(listingId: string, changes: LegacyRevision): Promise<string>;
 }
 
 /** Only the fields given are changed; `conditionDescription: null` / `package: null` remove them. */
@@ -503,6 +505,14 @@ class RestEbayClient implements EbayClient {
   async reviseLegacyListing(listingId: string, changes: LegacyRevision): Promise<void> {
     const { item, deleted } = legacyReviseXml(listingId, changes);
     await this.trading("ReviseFixedPriceItem", `${item}${deleted.map((f) => `<DeletedField>${f}</DeletedField>`).join("")}`);
+  }
+
+  async relistLegacyListing(listingId: string, changes: LegacyRevision): Promise<string> {
+    const { item } = legacyReviseXml(listingId, { price: changes.price, package: changes.package });
+    const xml = await this.trading("RelistFixedPriceItem", item);
+    const id = xml.match(/<ItemID>(\d+)<\/ItemID>/)?.[1];
+    if (!id) throw new Error("eBay didn't return the new item number.");
+    return id;
   }
 
   async endLegacyListing(listingId: string): Promise<void> {

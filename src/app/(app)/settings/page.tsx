@@ -29,6 +29,8 @@ export default async function SettingsPage() {
           platforms={lookups.platforms}
           mileageRate={settingNumber(lookups.settings, "mileage_rate", 0.725)}
           staleDays={settingNumber(lookups.settings, "stale_listing_days", 90)}
+          relistDays={settingNumber(lookups.settings, "relist_days", 180)}
+          quickMax={settingNumber(lookups.settings, "queue_quick_max", 20)}
         />
       </section>
 

@@ -18,6 +18,7 @@ const SECTIONS = [
       ["/outgoing", "4 · Outgoing", "Sold: pack and ship"],
       ["/completed", "5 · Completed", "Shipped, or taken down for good"],
       ["/quick", "Quick Check", "Snap a photo in the store: KEEP or DONATE"],
+      ["/queue", "Listing queue", "Photos of a batch in, listings out: quick send cheap items, review the rest"],
       ["/batch", "Batch AI listings", "Draft listings for several items at once"],
     ],
   },

@@ -5,7 +5,19 @@ import { addLookup, renameLookup, saveAiSettings, saveRates } from "./actions";
 import { DataList, Field, SubmitButton } from "@/components/fields";
 import type { Platform } from "@/lib/data/lookups";
 
-export function RatesForm({ platforms, mileageRate, staleDays }: { platforms: Platform[]; mileageRate: number; staleDays: number }) {
+export function RatesForm({
+  platforms,
+  mileageRate,
+  staleDays,
+  relistDays,
+  quickMax,
+}: {
+  platforms: Platform[];
+  mileageRate: number;
+  staleDays: number;
+  relistDays: number;
+  quickMax: number;
+}) {
   const [state, action] = useActionState(saveRates, null);
   return (
     <form action={action} className="space-y-4">
@@ -27,6 +39,12 @@ export function RatesForm({ platforms, mileageRate, staleDays }: { platforms: Pl
         </Field>
         <Field label="Stale listing after (days)">
           <input name="stale_listing_days" className="input" inputMode="numeric" defaultValue={staleDays} />
+        </Field>
+        <Field label="Relist due after (days)" hint="180 = about 6 months">
+          <input name="relist_days" className="input" inputMode="numeric" defaultValue={relistDays} />
+        </Field>
+        <Field label="Listing queue: quick send up to ($)" hint="Cheaper items get a quick check; pricier ones a full review">
+          <input name="queue_quick_max" className="input" inputMode="decimal" defaultValue={quickMax} />
         </Field>
       </div>
       {state && !state.ok && <p className="text-sm text-danger">{state.error}</p>}

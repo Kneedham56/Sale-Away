@@ -174,4 +174,7 @@ export class MockEbayClient implements EbayClient {
   }
   async reviseLegacyListing() {}
   async endLegacyListing() {}
+  async relistLegacyListing(listingId: string) {
+    return `${listingId}-relisted`;
+  }
 }

@@ -41,11 +41,13 @@ export async function ItemList({ mode, params }: { mode: "unlisted" | "listed"; 
   const trip = one(params, "trip");
   const sort = one(params, "sort") || (mode === "listed" ? "oldest" : "newest");
   const stale = one(params, "stale") === "1";
+  const relist = mode === "listed" && one(params, "relist") === "1";
   const ended = mode === "listed" && one(params, "ended") === "1";
   const limit = Math.min(Number(one(params, "limit")) || PAGE, 2000);
 
   const lookups = await getLookups(supabase);
   const staleDays = settingNumber(lookups.settings, "stale_listing_days", 90);
+  const relistDays = settingNumber(lookups.settings, "relist_days", 180);
 
   let query = supabase
     .from("items_view")
@@ -58,6 +60,7 @@ export async function ItemList({ mode, params }: { mode: "unlisted" | "listed"; 
   if (category) query = query.eq("category", category);
   if (trip) query = query.eq("lot_code", trip);
   if (stale) query = query.gte("days_active", staleDays);
+  if (relist) query = query.gte("days_active", relistDays);
   if (ended) query = query.not("ebay_ended_at", "is", null);
 
   if (mode === "listed") {
@@ -93,6 +96,7 @@ export async function ItemList({ mode, params }: { mode: "unlisted" | "listed"; 
         {kind && <input type="hidden" name="kind" value={kind} />}
         {drafted && <input type="hidden" name="stage" value="drafted" />}
         {stale && <input type="hidden" name="stale" value="1" />}
+        {relist && <input type="hidden" name="relist" value="1" />}
         {ended && <input type="hidden" name="ended" value="1" />}
         {category && <input type="hidden" name="category" value={category} />}
         {trip && <input type="hidden" name="trip" value={trip} />}
@@ -117,6 +121,14 @@ export async function ItemList({ mode, params }: { mode: "unlisted" | "listed"; 
             className={`chip shrink-0 ${stale ? "chip-active" : ""}`}
           >
             Stale ({staleDays}+ days)
+          </Link>
+        )}
+        {mode === "listed" && (
+          <Link
+            href={hrefWith(base, params, { relist: relist ? null : "1", stale: null, limit: null })}
+            className={`chip shrink-0 ${relist ? "chip-active" : ""}`}
+          >
+            Relist due ({Math.round(relistDays / 30)}+ months)
           </Link>
         )}
         {mode === "listed" && (
@@ -155,7 +167,7 @@ export async function ItemList({ mode, params }: { mode: "unlisted" | "listed"; 
       </p>
 
       {!items?.length ? (
-        <Empty>{q || kind || stale ? "Nothing matches." : drafted ? "No drafted listings. Generate one on an item and tap Save for later." : mode === "unlisted" ? "Nothing waiting to be listed." : "Nothing listed yet."}</Empty>
+        <Empty>{q || kind || stale || relist ? "Nothing matches." : drafted ? "No drafted listings. Generate one on an item and tap Save for later." : mode === "unlisted" ? "Nothing waiting to be listed." : "Nothing listed yet."}</Empty>
       ) : (
         <ul className="list">
           {items.map((it) => (

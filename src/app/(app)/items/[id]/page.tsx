@@ -3,7 +3,7 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { requireMember } from "@/lib/auth";
 import { createClient } from "@/lib/supabase/server";
-import { getLookups } from "@/lib/data/lookups";
+import { getLookups, settingNumber } from "@/lib/data/lookups";
 import { signPaths } from "@/lib/photos";
 import { todayIso } from "@/lib/dates";
 import { FULFILLMENT_LABELS, money, shortDate, STAGE_STATUSES, STATUS_LABELS, type ItemStatus } from "@/lib/format";
@@ -21,6 +21,7 @@ import { ListingAssistant } from "./listing-assistant";
 import type { ListingSuggestion } from "@/lib/ai/types";
 import { ListOnEbay } from "./list-on-ebay";
 import { UpdateEbayButton } from "./update-ebay-button";
+import { RelistBox } from "./relist-box";
 import { ebayModeFor } from "@/lib/ebay/mode";
 import { checkReady, type PolicyDefaults } from "@/lib/ebay/publish";
 import { createAdminClient } from "@/lib/supabase/admin";
@@ -258,6 +259,22 @@ export default async function ItemPage({ params, searchParams }: PageProps<"/ite
 
           {status === "listed" && !item.ebay_ended_at && mode.canPublish && mode.env !== "mock" && (item.ebay_item_id || item.ebay_offer_id) && (
             <UpdateEbayButton itemId={item.id} context={`Item #${item.item_number}: ${item.title}`} />
+          )}
+
+          {status === "listed" && mode.canPublish && mode.env !== "mock" && (item.ebay_item_id || item.ebay_offer_id) && (
+            <RelistBox
+              itemId={item.id}
+              price={item.list_price === null ? null : Number(item.list_price)}
+              daysActive={item.days_active}
+              dueDays={settingNumber(lookups.settings, "relist_days", 180)}
+              context={`Item #${item.item_number}: ${item.title}`}
+              pkg={{
+                weightOz: item.weight_oz === null ? null : Number(item.weight_oz),
+                lengthIn: item.length_in === null ? null : Number(item.length_in),
+                widthIn: item.width_in === null ? null : Number(item.width_in),
+                heightIn: item.height_in === null ? null : Number(item.height_in),
+              }}
+            />
           )}
 
           <StatusActions

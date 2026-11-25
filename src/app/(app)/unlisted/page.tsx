@@ -44,6 +44,7 @@ export default async function InventoryPage({ searchParams }: PageProps<"/unlist
         subtitle={drafted ? "Listings you've reviewed, ready to post." : "Things you've bought and haven't listed yet."}
         actions={
           <>
+            {!drafted && <Link href="/queue" className="btn-small">Photo batch</Link>}
             {!drafted && <Link href="/batch" className="btn-small">Batch AI</Link>}
             <Link href="/add" className="btn-small">+ Add</Link>
           </>

@@ -83,3 +83,12 @@ export async function uploadPhoto(workspaceId: string, itemId: string, file: Fil
     thumb_path: thumb ? thumbPath : null,
   };
 }
+
+/** A small JPEG preview (for the AI to sort a photo batch into items, and for her to see it). */
+export async function smallPreview(file: File, longEdge = 320): Promise<{ base64: string; url: string }> {
+  const blob = await toJpeg(await decode(file), longEdge, 0.7);
+  const buf = new Uint8Array(await blob.arrayBuffer());
+  let bin = "";
+  for (let i = 0; i < buf.length; i += 0x8000) bin += String.fromCharCode(...buf.subarray(i, i + 0x8000));
+  return { base64: btoa(bin), url: URL.createObjectURL(blob) };
+}
